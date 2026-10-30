@@ -44,3 +44,27 @@ def test_save_load_roundtrip(tmp_path):
     assert back.screen.region == (0.1, 0.2, 0.3, 0.4)
     assert back.ui.font_size == 28
     assert back.translate.glossary == {"gg": "打得好"}
+
+
+def test_glossary_keys_with_spaces_survive_a_roundtrip(tmp_path):
+    """Bare TOML keys cannot contain spaces; "cover me" must be quoted."""
+    cfg = AppConfig()
+    cfg.translate.glossary = {"cover me": "掩护我", "on my mark": "听我口令", "gg": "打得好"}
+    out = cfg.save(tmp_path / "config.toml")
+
+    text = out.read_text(encoding="utf-8")
+    assert '"cover me" = "掩护我"' in text
+
+    back = AppConfig.load(out)
+    assert back.translate.glossary == cfg.translate.glossary
+
+
+def test_default_config_roundtrips():
+    """The shipped defaults must be able to survive a save/load cycle."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = AppConfig().save(Path(tmp) / "config.toml")
+        back = AppConfig.load(out)
+    assert back.translate.glossary == AppConfig().translate.glossary

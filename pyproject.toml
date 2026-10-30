@@ -11,7 +11,7 @@ ocr = ["rapidocr-onnxruntime>=1.3", "opencv-python-headless>=4.9"]
 translate = ["httpx>=0.27"]
 asr = ["faster-whisper>=1.0"]
 audio = ["sounddevice>=0.4"]
-ui = ["PySide6>=6.6"]
+ui = ["PySide6-Essentials>=6.6"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]

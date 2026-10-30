@@ -2,6 +2,7 @@
 
 fpst doctor   # environment + engine availability report (run this first on Windows)
 fpst config   # write a commented default config.toml and print its path
+fpst roi      # drag a box on screen -> get ROI fractions to paste into config
 fpst scan     # capture the configured ROI once and print what OCR sees
 fpst watch    # run the always-on scan loop, printing translations
 fpst bench    # measure what this will actually cost your game
@@ -74,6 +75,72 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         print("skipped modules:")
         for module, reason in sorted(MISSING.items()):
             print(f"  {module}: {reason}")
+    return 0
+
+
+def cmd_roi(args: argparse.Namespace) -> int:
+    """Pick the ROI with the mouse, optionally verify it and save it."""
+    from .capture import make_screen_source
+    from .ocr import make_ocr_engine, postprocess
+    from .ui.roi_picker import pick_region
+
+    load_builtin_engines()
+    cfg = AppConfig.load(args.config)
+
+    picked = pick_region(monitor=args.monitor)
+    if picked is None:
+        print("cancelled")
+        return 1
+
+    print(f"monitor {picked.monitor}  {picked.monitor_size[0]}x{picked.monitor_size[1]} px")
+    print(
+        f"pixels : {picked.rect_px[0]} {picked.rect_px[1]} {picked.rect_px[2]} {picked.rect_px[3]}"
+    )
+    print()
+    print("paste into config.toml:")
+    print("  [screen]")
+    print(f"  monitor = {picked.monitor}")
+    print(f"  region = {picked.toml_region}")
+    print()
+    print("or use right now:")
+    print(f"  fpst watch --region {picked.cli_region}")
+
+    if args.verify:
+        print()
+        print("verifying (one OCR pass on the selection)...")
+        cfg.screen.monitor = picked.monitor
+        cfg.screen.region = picked.fractions
+        cfg.screen.min_change_ratio = 0
+        source = make_screen_source(cfg.screen)
+        try:
+            source.open()
+            frame = source.grab()
+        finally:
+            source.close()
+        if frame is None:
+            print("  no frame captured")
+            return 1
+        engine = make_ocr_engine(cfg.ocr)
+        engine.warmup()
+        try:
+            started = time.perf_counter()
+            regions = engine.recognize(frame)
+            elapsed = (time.perf_counter() - started) * 1000
+        finally:
+            engine.close()
+        lines = postprocess(regions, merge=cfg.ocr.merge_lines)
+        print(f"  {len(regions)} boxes -> {len(lines)} lines in {elapsed:.0f} ms")
+        if not lines:
+            print("  nothing recognised -- the box may be empty or too small")
+        for line in lines[: cfg.ocr.max_lines]:
+            print(f"  [{line.confidence:.2f}] {line.text}")
+
+    if args.write:
+        cfg.screen.monitor = picked.monitor
+        cfg.screen.region = picked.fractions
+        path = cfg.save(args.config)
+        print()
+        print(f"written to {path}")
     return 0
 
 
@@ -300,6 +367,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_config = sub.add_parser("config", help="write a default config.toml")
     p_config.add_argument("--path", default=None, help="override target path")
     p_config.set_defaults(func=cmd_config)
+
+    p_roi = sub.add_parser("roi", help="drag a box to pick the ROI, print fractions")
+    p_roi.add_argument("--config", default=None, help="config file (used by --write)")
+    p_roi.add_argument("--monitor", type=int, default=1, help="which monitor to overlay (1-based)")
+    p_roi.add_argument("--verify", action="store_true", help="OCR the selection immediately")
+    p_roi.add_argument("--write", action="store_true", help="save the selection into config.toml")
+    p_roi.set_defaults(func=cmd_roi)
 
     p_scan = sub.add_parser("scan", help="capture the ROI once and print OCR output")
     p_scan.add_argument("--config", default=None, help="config file to load")

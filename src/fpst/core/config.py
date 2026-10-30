@@ -260,6 +260,20 @@ def _coerce(annotation: Any, current: Any, value: Any) -> Any:
     return value
 
 
+_BARE_KEY = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+
+
+def _fmt_key(key: str) -> str:
+    """Bare TOML keys are [A-Za-z0-9_-]+; anything else must be quoted.
+
+    Glossary keys like "cover me" and "on my mark" contain spaces -- writing
+    them bare produces a file that tomllib refuses to parse.
+    """
+    if key and all(ch in _BARE_KEY for ch in key):
+        return key
+    return '"' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def _fmt_scalar(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -277,17 +291,17 @@ def _dump_toml(data: dict[str, Any]) -> str:
     scalar_items = {k: v for k, v in data.items() if not isinstance(v, dict)}
     table_items = {k: v for k, v in data.items() if isinstance(v, dict)}
     for key, value in scalar_items.items():
-        lines.append(f"{key} = {_fmt_scalar(value)}")
+        lines.append(f"{_fmt_key(key)} = {_fmt_scalar(value)}")
     for section, table in table_items.items():
         lines.append("")
         lines.append(f"[{section}]")
         flat = {k: v for k, v in table.items() if not isinstance(v, dict)}
         nested = {k: v for k, v in table.items() if isinstance(v, dict)}
         for key, value in flat.items():
-            lines.append(f"{key} = {_fmt_scalar(value)}")
+            lines.append(f"{_fmt_key(key)} = {_fmt_scalar(value)}")
         for sub, subtable in nested.items():
             lines.append("")
             lines.append(f"[{section}.{sub}]")
             for key, value in subtable.items():
-                lines.append(f"{key} = {_fmt_scalar(value)}")
+                lines.append(f"{_fmt_key(key)} = {_fmt_scalar(value)}")
     return "\n".join(lines) + "\n"
