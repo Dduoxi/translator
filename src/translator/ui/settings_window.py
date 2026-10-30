@@ -195,11 +195,15 @@ class RegionsTab(_Tab):
         row = QHBoxLayout()
         pick = QPushButton("重新框选…")
         pick.clicked.connect(self._pick)
-        remove = QPushButton("删除选中")
-        remove.clicked.connect(self._remove)
+        self.remove_button = QPushButton("删除选中")
+        self.remove_button.setEnabled(False)
+        self.remove_button.clicked.connect(self._remove)
+        self.table.itemSelectionChanged.connect(
+            lambda: self.remove_button.setEnabled(self.table.currentRow() >= 0)
+        )
         self.monitor = _spin(1, 1, 4)
         row.addWidget(pick)
-        row.addWidget(remove)
+        row.addWidget(self.remove_button)
         row.addStretch(1)
         row.addWidget(QLabel("显示器"))
         row.addWidget(self.monitor)
@@ -207,6 +211,9 @@ class RegionsTab(_Tab):
 
     def label(self) -> str:
         return "扫描区域"
+
+    def set_pick_handler(self, handler: Callable[[], None] | None) -> None:
+        self._on_pick = handler
 
     def _pick(self) -> None:
         if self._on_pick:
@@ -260,7 +267,10 @@ class TranslateTab(_Tab):
         key_row = QHBoxLayout()
         self.key_status = QLabel("…")
         auth = QPushButton("设置密钥…")
-        auth.clicked.connect(lambda: self._on_auth and self._on_auth())
+        # Resolved at click time, not captured now: the settings window is built
+        # before the application's handlers exist, so a captured None meant the
+        # button silently did nothing.
+        auth.clicked.connect(self._request_key)
         key_row.addWidget(QLabel("密钥"))
         key_row.addWidget(self.key_status, 1)
         key_row.addWidget(auth)
@@ -276,6 +286,13 @@ class TranslateTab(_Tab):
         add.clicked.connect(lambda: self.glossary.insertRow(self.glossary.rowCount()))
         g_layout.addWidget(add)
         layout.addWidget(glossary_box, 1)
+
+    def set_key_handler(self, handler: Callable[[], None] | None) -> None:
+        self._on_auth = handler
+
+    def _request_key(self) -> None:
+        if self._on_auth is not None:
+            self._on_auth()
 
     def label(self) -> str:
         return "翻译"
@@ -561,6 +578,20 @@ class SettingsWindow(QDialog):
 
     def _reload_from_window(self) -> None:
         self.load_config(self.collect_config())
+
+    def set_handlers(
+        self,
+        on_pick_regions: Callable[[], None] | None = None,
+        on_set_key: Callable[[], None] | None = None,
+    ) -> None:
+        """Connect the two buttons that need the application, not the window.
+
+        They cannot be passed to __init__: the window is created first, and the
+        application's handlers need the window to exist (they raise dialogs over
+        it).
+        """
+        self.regions.set_pick_handler(on_pick_regions)
+        self.translate.set_key_handler(on_set_key)
 
     def update_status(self, snap: dict) -> None:
         self.status.show_snapshot(snap)

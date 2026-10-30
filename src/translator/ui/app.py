@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QSystemTrayIcon
 
 from ..core.config import AppConfig, default_config_path
 from ..runtime.credentials import (
@@ -136,18 +136,19 @@ def run_app(
             tray.notify("已更新区域", f"共 {len(picked)} 个扫描区域")
 
     def set_key() -> None:
-        try:
-            ensure_credentials(
-                controller.cfg.translate,
-                interactive=True,
-                reason="设置翻译凭据。",
-            )
-        except MissingApiKey as exc:
-            QMessageBox.warning(window, "密钥设置失败", str(exc))
+        """Ask for credentials in a dialog -- the CLI prompt cannot work here."""
+        from .key_dialog import CredentialDialog
+
+        dialog = CredentialDialog(controller.cfg.translate, parent=window)
+        if dialog.exec() != CredentialDialog.DialogCode.Accepted or not dialog.saved:
             return
+        # Persist: the dialog may have written appid/key into the config when the
+        # OS credential store was unavailable, and it may have switched engine.
+        controller.apply_and_restart(controller.cfg)
+        window.load_config(controller.cfg)
         window.set_key_status(_key_status(controller.cfg))
         if tray is not None:
-            tray.notify("密钥已更新", _key_status(controller.cfg))
+            tray.notify("凭据已更新", _key_status(controller.cfg))
 
     def save_settings() -> None:
         edited = window.collect_config(controller.cfg)
@@ -173,6 +174,8 @@ def run_app(
     else:
         log.info("no system tray available; running with the overlay only")
 
+    # The window is built before these handlers exist, so wire them afterwards.
+    window.set_handlers(on_pick_regions=pick_regions, on_set_key=set_key)
     window.accepted.connect(save_settings)
 
     demo_timer = None

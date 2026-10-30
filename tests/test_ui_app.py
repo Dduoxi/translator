@@ -444,3 +444,172 @@ def test_dialog_is_suppressed_by_env(monkeypatch):
 
     monkeypatch.setenv("TRANSLATOR_NO_DIALOG", "1")
     assert report._show_dialog("x", "") is False
+
+
+# ------------------------------------------------ settings buttons must be wired
+
+
+def test_settings_buttons_do_nothing_until_handlers_are_set(app):
+    """The window is created before the application's handlers exist; if the tabs
+    captured None at construction, both buttons silently did nothing."""
+    from translator.ui.settings_window import SettingsWindow
+
+    window = SettingsWindow()
+    try:
+        assert window.regions._on_pick is None
+        assert window.translate._on_auth is None
+        window.regions._pick()  # must not raise
+        window.translate._request_key()
+    finally:
+        window.close()
+
+
+def test_set_handlers_connects_both_buttons(app):
+    from translator.ui.settings_window import SettingsWindow
+
+    calls: list[str] = []
+    window = SettingsWindow()
+    try:
+        window.set_handlers(
+            on_pick_regions=lambda: calls.append("pick"),
+            on_set_key=lambda: calls.append("key"),
+        )
+        window.regions._pick()
+        window.translate._request_key()
+        assert calls == ["pick", "key"]
+    finally:
+        window.close()
+
+
+def test_real_button_click_reaches_the_late_handler(app):
+    """Drive the actual QPushButton, not just the slot: the bug was that the
+    button was connected to a captured None."""
+    from PySide6.QtWidgets import QPushButton
+
+    from translator.ui.settings_window import SettingsWindow
+
+    calls: list[str] = []
+    window = SettingsWindow()
+    try:
+        window.set_handlers(on_set_key=lambda: calls.append("key"))
+        button = next(
+            b for b in window.translate.findChildren(QPushButton) if b.text() == "设置密钥…"
+        )
+        button.click()
+        assert calls == ["key"], "clicking 设置密钥… must open the dialog"
+    finally:
+        window.close()
+
+
+# ----------------------------------------------------------- credential dialog
+
+
+def test_credential_dialog_defaults_to_llm_fields(app):
+    from translator.core.config import TranslateConfig
+    from translator.ui.key_dialog import PROVIDER_LLM, CredentialDialog
+
+    dialog = CredentialDialog(TranslateConfig())
+    try:
+        assert dialog._provider() == PROVIDER_LLM
+        assert dialog.label_a.text() == "API Key"
+        assert "确认" in dialog.label_b.text(), "a typo here is unrecoverable later"
+    finally:
+        dialog.close()
+
+
+def test_credential_dialog_switches_to_baidu_fields(app):
+    from translator.core.config import TranslateConfig
+    from translator.ui.key_dialog import PROVIDER_BAIDU, CredentialDialog
+
+    dialog = CredentialDialog(TranslateConfig())
+    try:
+        dialog.provider.setCurrentIndex(dialog.provider.findData(PROVIDER_BAIDU))
+        assert dialog.label_a.text() == "APPID"
+        assert "fanyi.baidu.com" in dialog.endpoint_label.text()
+    finally:
+        dialog.close()
+
+
+def test_credential_dialog_rejects_mismatched_key(app):
+    from translator.core.config import TranslateConfig
+    from translator.ui.key_dialog import CredentialDialog
+
+    dialog = CredentialDialog(TranslateConfig())
+    try:
+        dialog.field_a.setText("sk-one")
+        dialog.field_b.setText("sk-two")
+        assert dialog._values() is None
+        assert "不一致" in dialog.status.text()
+    finally:
+        dialog.close()
+
+
+def test_credential_dialog_requires_a_value(app):
+    from translator.core.config import TranslateConfig
+    from translator.ui.key_dialog import CredentialDialog
+
+    dialog = CredentialDialog(TranslateConfig())
+    try:
+        dialog.field_a.setText("   ")
+        assert dialog._values() is None
+    finally:
+        dialog.close()
+
+
+def test_credential_dialog_saves_after_validation(app, monkeypatch):
+    from translator.core.config import TranslateConfig
+    from translator.ui import key_dialog
+
+    saved: list[str] = []
+    monkeypatch.setattr(key_dialog, "save_api_key", lambda key: (saved.append(key), "keyring")[1])
+    monkeypatch.setattr(key_dialog, "validate_api_key", lambda *a, **k: (True, "验证通过"))
+    dialog = key_dialog.CredentialDialog(TranslateConfig())
+    try:
+        dialog.field_a.setText("sk-good")
+        dialog.field_b.setText("sk-good")
+        dialog._on_save()
+        assert saved == ["sk-good"]
+        assert dialog.saved is True
+    finally:
+        dialog.close()
+
+
+def test_credential_dialog_refuses_to_store_an_unvalidated_key(app, monkeypatch):
+    """A typo stored silently only shows up later as "no subtitles", which is
+    far harder to diagnose than a rejected dialog."""
+    from translator.core.config import TranslateConfig
+    from translator.ui import key_dialog
+
+    saved: list[str] = []
+    monkeypatch.setattr(key_dialog, "save_api_key", lambda key: (saved.append(key), "keyring")[1])
+    monkeypatch.setattr(key_dialog, "validate_api_key", lambda *a, **k: (False, "密钥无效"))
+    dialog = key_dialog.CredentialDialog(TranslateConfig())
+    try:
+        dialog.field_a.setText("sk-bad")
+        dialog.field_b.setText("sk-bad")
+        dialog._on_save()
+        assert saved == [], "must not persist a key that failed validation"
+        assert dialog.saved is False
+        assert "无效" in dialog.status.text()
+    finally:
+        dialog.close()
+
+
+def test_credential_dialog_skips_revalidation_after_a_successful_test(app, monkeypatch):
+    from translator.core.config import TranslateConfig
+    from translator.ui import key_dialog
+
+    calls: list[int] = []
+    monkeypatch.setattr(
+        key_dialog, "validate_api_key", lambda *a, **k: (calls.append(1), (True, "ok"))[1]
+    )
+    monkeypatch.setattr(key_dialog, "save_api_key", lambda key: "keyring")
+    dialog = key_dialog.CredentialDialog(TranslateConfig())
+    try:
+        dialog.field_a.setText("sk-good")
+        dialog.field_b.setText("sk-good")
+        dialog._on_test()
+        dialog._on_save()
+        assert len(calls) == 1, "a passing test should not be repeated on save"
+    finally:
+        dialog.close()
