@@ -325,6 +325,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Line-buffer even when piped to a file/tee, so `fpst watch > log` streams.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):
