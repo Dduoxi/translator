@@ -17,7 +17,7 @@ import sys
 import numpy as np
 
 from ..core.interfaces import ScreenSource
-from ..core.registry import register
+from ..core.registry import RegistryError, register
 from ..core.types import Frame, Rect
 
 log = logging.getLogger(__name__)
@@ -56,6 +56,14 @@ class DxgiSource(ScreenSource):
         self._monitor_index = int(monitor)
         self._region_rel = region
         self._device_idx = device_idx
+        # Probe here rather than in open(): open() runs on the capture thread,
+        # where a missing backend just killed the thread and left the app looking
+        # "running" with zero frames captured. Raising at construction lets the
+        # factory fall back to mss, which always works.
+        try:
+            self._backend_name = _import_backend()[1]
+        except ImportError as exc:
+            raise RegistryError("DXGI capture needs bettercam (uv pip install bettercam)") from exc
         self._backend = None
         self._backend_name = ""
         self._camera = None

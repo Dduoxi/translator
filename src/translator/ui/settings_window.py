@@ -490,7 +490,8 @@ class StatusTab(_Tab):
             f"扫描区域：{snap.get('regions')} 个",
             f"模型：{snap.get('model')}",
             "",
-            f"抓到的变化帧：{snap.get('frames', '—')}",
+            f"抓屏次数：{snap.get('frames_attempted', '—')}",
+            f"通过变化门控：{snap.get('frames', '—')}",
             f"OCR 次数：{snap.get('ocr_runs', '—')}",
             f"OCR 平均耗时：{snap.get('ocr_ms', 0):.0f} ms",
             f"翻译耗时：{snap.get('translate_ms', 0):.0f} ms",
@@ -508,6 +509,26 @@ class StatusTab(_Tab):
             ]
         if snap.get("last_error"):
             rows += ["", f"最近错误：{snap['last_error']}"]
+
+        # Say what "0" means. A bare counter leaves the user guessing whether the
+        # app is broken or the screen simply is not changing.
+        if snap.get("state") == "running":
+            attempted = snap.get("frames_attempted") or 0
+            gated = snap.get("frames") or 0
+            ocr = snap.get("ocr_runs") or 0
+            if attempted == 0:
+                rows += [
+                    "",
+                    "⚠ 还没抓到任何画面：抓屏可能失败（看下方错误），或选中的区域不在当前屏幕上。",
+                ]
+            elif gated == 0:
+                rows += [
+                    "",
+                    "⚠ 抓到了画面，但都判定为「没有变化」，所以没跑 OCR。"
+                    "\n   选区内没有文字变化，或变化幅度低于阈值（性能页的「变化阈值」）。",
+                ]
+            elif ocr == 0:
+                rows += ["", "⚠ 有变化帧但还没跑 OCR：OCR 有最小间隔限制，稍等即可。"]
         self.summary.setText("\n".join(rows))
 
     def load(self, cfg: AppConfig) -> None:  # nothing to edit

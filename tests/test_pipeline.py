@@ -721,3 +721,64 @@ def test_throttle_is_per_region_not_global():
     # Per-region budgets allow each region ~10 runs in 2 s; a global budget
     # would allow 10 runs TOTAL, i.e. under 2 per region.
     assert min(ocr.per_region.values()) >= 3, f"uneven service: {ocr.per_region}"
+
+
+def test_capture_failure_is_reported_not_silent():
+    """A dead capture must not look like a healthy pipeline with zero OCR runs."""
+    from translator.core.interfaces import ScreenSource
+
+    class RefusesToOpen(ScreenSource):
+        name = "refuses"
+
+        def open(self):
+            raise RuntimeError("no screen for you")
+
+        def close(self):
+            pass
+
+        def grab(self):
+            return None
+
+        @property
+        def size(self):
+            return (10, 10)
+
+    pipeline = ScreenPipeline(
+        RefusesToOpen(),
+        MockOCREngine(lines=["x"]),
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: bool(pipeline.capture_error), timeout=3.0)
+    finally:
+        pipeline.stop()
+
+    assert pipeline.healthy is False
+    assert "no screen for you" in pipeline.capture_error
+
+
+def test_frames_attempted_counts_rejected_frames():
+    """frames_grabbed cannot distinguish "nothing changed" from "capture broken";
+    frames_attempted can."""
+    image = np.zeros((40, 60, 3), np.uint8)
+    pipeline = ScreenPipeline(
+        ChangedOnly(ReplaySource([image]), min_change_ratio=0.01),
+        MockOCREngine(lines=["x"]),
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: pipeline.stats.frames_attempted >= 5, timeout=3.0)
+    finally:
+        pipeline.stop()
+
+    assert pipeline.stats.frames_attempted > pipeline.stats.frames_grabbed, (
+        "the gate must have rejected some frames for this to be meaningful"
+    )

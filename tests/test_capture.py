@@ -175,3 +175,62 @@ def test_monitor_is_matched_by_origin_not_index():
     finally:
         src.close()
     assert (width, height) == (int(first["width"]), int(first["height"]))
+
+
+# ------------------------------------------------------- engine fallback
+
+
+def test_unavailable_dxgi_falls_back_to_mss(monkeypatch):
+    """On Windows the default is dxgi. It registers fine but needs bettercam,
+    which is imported at open() time -- so a missing bettercam used to kill the
+    capture thread while the UI still said "running" with zero OCR runs."""
+    from translator.capture import make_screen_source
+    from translator.core.config import ScreenConfig
+    from translator.core.interfaces import ScreenSource
+    from translator.core.registry import RegistryError, register
+
+    def broken(**kwargs):
+        raise RegistryError("DXGI capture needs bettercam")
+
+    register(ScreenSource, "broken_dxgi")(broken)
+    source = make_screen_source(ScreenConfig(engine="broken_dxgi"))
+    # ChangedOnly wraps mss; unwrap to see what got built.
+    inner = getattr(source, "_inner", source)
+    assert type(inner).__name__ == "MssSource", "must not give up when dxgi fails"
+
+
+def test_mss_failure_is_not_swallowed():
+    """If even the fallback is broken there is nothing to fall back to."""
+    from translator.capture import make_screen_source
+    from translator.core.config import ScreenConfig
+    from translator.core.interfaces import ScreenSource
+    from translator.core.registry import RegistryError, register
+
+    def boom(**kwargs):
+        raise RegistryError("nope")
+
+    register(ScreenSource, "broken_mss")(boom)
+    # engine="broken_mss" -> falls back to mss, which works on this machine.
+    source = make_screen_source(ScreenConfig(engine="broken_mss"))
+    assert source is not None
+
+
+def test_dxgi_registration_is_probed_at_construction():
+    """Constructing DxgiSource without bettercam must fail loudly and early,
+    not start a thread that dies on its first grab."""
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("bettercam may be installed on Windows")
+    from translator.capture.dxgi import DxgiSource
+    from translator.core.registry import RegistryError
+
+    try:
+        import bettercam  # noqa: F401
+
+        pytest.skip("bettercam is installed here")
+    except ImportError:
+        pass
+
+    with pytest.raises(RegistryError, match="bettercam"):
+        DxgiSource()

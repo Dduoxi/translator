@@ -27,6 +27,17 @@ for package in ("rapidocr_onnxruntime",):
     binaries += pkg_binaries
     hiddenimports += pkg_hidden
 
+# bettercam is imported lazily inside a function, which PyInstaller's static
+# analysis does not follow -- without it DXGI capture dies on first open.
+for package in ("bettercam", "dxcam"):
+    try:
+        pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
+    except Exception:  # noqa: BLE001 - only one of them will be installed
+        continue
+    datas += pkg_datas
+    binaries += pkg_binaries
+    hiddenimports += pkg_hidden
+
 # keyring picks its backend at runtime; the Windows one must be present.
 hiddenimports += collect_submodules("keyring.backends")
 

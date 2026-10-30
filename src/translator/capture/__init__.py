@@ -12,6 +12,7 @@ simple -- a twitch in the kill feed no longer re-OCRs the chat box.
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from ..core.config import ScreenConfig
@@ -20,6 +21,8 @@ from ..core.registry import RegistryError, available, create
 from .gate import ChangedOnly
 
 __all__ = ["make_screen_sources", "make_screen_source", "ChangedOnly", "describe"]
+
+log = logging.getLogger(__name__)
 
 PLATFORM_DEFAULT = "dxgi" if sys.platform == "win32" else "mss"
 
@@ -36,10 +39,13 @@ def _build_one(cfg: ScreenConfig, region: tuple[float, float, float, float] | No
             region=region,
             monitor_origin=cfg.monitor_origin,
         )
-    except RegistryError:
-        if name == PLATFORM_DEFAULT:
+    except RegistryError as exc:
+        if name == "mss":
             raise
-        # Configured engine is not installed / not supported here -> fall back.
+        # Not just "not registered here": an engine can be registered yet be
+        # unusable at runtime (dxgi without bettercam). Falling back beats
+        # capturing nothing at all, which is indistinguishable from "broken".
+        log.warning("capture engine %r unusable (%s); falling back to mss", name, exc)
         source = create(
             ScreenSource,
             "mss",

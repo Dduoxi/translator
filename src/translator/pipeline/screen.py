@@ -57,6 +57,11 @@ class PipelineStats:
     lines_new: int = 0
     errors: int = 0
     idle: bool = False
+    frames_attempted: int = 0
+    """Every grab() call, including the ones the change gate rejected.
+
+    ``frames_grabbed`` only counts frames that passed the gate, so it cannot tell
+    "the chat is not changing" apart from "capture is broken". This can."""
     _ocr_ms: deque[float] = field(default_factory=lambda: deque(maxlen=50))
     _tr_ms: deque[float] = field(default_factory=lambda: deque(maxlen=50))
 
@@ -133,6 +138,12 @@ class ScreenPipeline:
         self._mailbox: LatestPerKey[int, Frame] = LatestPerKey()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self.capture_error = ""
+        """Set when the capture thread could not start at all.
+
+        Without it the UI keeps saying "running" while nothing is being captured,
+        which is what made a missing bettercam look like "OCR count is 0".
+        """
         # Translation runs on its own thread with its own capacity-1 mailbox.
         # A slow LLM (measured 0.8-28 s for the same prompt) must never block
         # OCR, or one sluggish request would freeze the subtitle feed entirely.
@@ -193,6 +204,11 @@ class ScreenPipeline:
             self.stop()
 
     @property
+    def healthy(self) -> bool:
+        """False when capture never started -- the UI must not claim "running"."""
+        return not self.capture_error
+
+    @property
     def translator_stats(self) -> dict[str, float]:
         """Cache/glossary counters, when the translator exposes them."""
         stats = getattr(self._translator, "stats", None)
@@ -212,8 +228,9 @@ class ScreenPipeline:
             for source in self._sources:
                 source.open()  # same thread as grab/close: DXGI requires it
                 opened.append(source)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             log.exception("failed to open screen source")
+            self.capture_error = f"{type(exc).__name__}: {exc}"
             for source in opened:
                 with contextlib.suppress(Exception):
                     source.close()
@@ -228,6 +245,7 @@ class ScreenPipeline:
             while not self._stop.is_set():
                 now = time.monotonic()
                 for index, source in enumerate(self._sources):
+                    self.stats.frames_attempted += 1
                     try:
                         frame = source.grab()
                     except Exception:  # noqa: BLE001
