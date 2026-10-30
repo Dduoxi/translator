@@ -167,9 +167,9 @@ class ScreenPipeline:
             return
         self._stop.clear()
         self._threads = [
-            threading.Thread(target=self._capture_loop, name="fpst-capture", daemon=True),
-            threading.Thread(target=self._worker_loop, name="fpst-ocr", daemon=True),
-            threading.Thread(target=self._translate_loop, name="fpst-translate", daemon=True),
+            threading.Thread(target=self._capture_loop, name="translator-capture", daemon=True),
+            threading.Thread(target=self._worker_loop, name="translator-ocr", daemon=True),
+            threading.Thread(target=self._translate_loop, name="translator-translate", daemon=True),
         ]
         for thread in self._threads:
             thread.start()

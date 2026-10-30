@@ -5,7 +5,7 @@ Everything the app does is one of:
                                   >- Translator -> Subtitle
     AudioSource -> VoiceSegmenter -> ASREngine -/
 
-Concrete engines register themselves by name (see ``fpst.core.registry``) so a
+Concrete engines register themselves by name (see ``translator.core.registry``) so a
 config file can pick ``rapidocr`` today and ``paddle`` tomorrow without touching
 the pipeline.
 """

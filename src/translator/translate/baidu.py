@@ -80,8 +80,8 @@ class BaiduTranslator(Translator):
         self,
         appid: str = "",
         secret_key: str = "",
-        appid_env: str = "FPST_BAIDU_APPID",
-        key_env: str = "FPST_BAIDU_KEY",
+        appid_env: str = "TRANSLATOR_BAIDU_APPID",
+        key_env: str = "TRANSLATOR_BAIDU_KEY",
         timeout_s: float = 8.0,
         qps: float = 1.0,
         glossary: dict[str, str] | None = None,
@@ -116,7 +116,7 @@ class BaiduTranslator(Translator):
         if not self._appid or not self._key:
             raise RuntimeError(
                 f"百度翻译需要 appid 和密钥：设置 {self._appid_env} / {self._key_env}，"
-                "或运行 `fpst auth set`"
+                "或运行 `translator auth set`"
             )
         import httpx
 

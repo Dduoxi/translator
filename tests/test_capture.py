@@ -5,9 +5,9 @@ import os
 import numpy as np
 import pytest
 
-from fpst.capture.gate import ChangedOnly
-from fpst.core.interfaces import ScreenSource
-from fpst.core.types import Frame
+from translator.capture.gate import ChangedOnly
+from translator.core.interfaces import ScreenSource
+from translator.core.types import Frame
 
 
 class FakeSource(ScreenSource):
@@ -117,7 +117,7 @@ has_display = bool(os.environ.get("DISPLAY") or os.name == "nt")
 @pytest.mark.skipif(not has_display, reason="needs a desktop session")
 def test_mss_grabs_real_screen():
     pytest.importorskip("mss")
-    from fpst.capture.mss_source import MssSource
+    from translator.capture.mss_source import MssSource
 
     src = MssSource(monitor=1)
     try:
@@ -134,7 +134,7 @@ def test_mss_grabs_real_screen():
 @pytest.mark.skipif(not has_display, reason="needs a desktop session")
 def test_mss_roi_is_respected():
     pytest.importorskip("mss")
-    from fpst.capture.mss_source import MssSource
+    from translator.capture.mss_source import MssSource
 
     src = MssSource(monitor=1, region=(0.25, 0.25, 0.5, 0.5))
     try:
@@ -157,7 +157,7 @@ def test_monitor_is_matched_by_origin_not_index():
     pytest.importorskip("mss")
     import mss as _mss
 
-    from fpst.capture.mss_source import MssSource
+    from translator.capture.mss_source import MssSource
 
     with _mss.MSS() as sct:
         monitors = sct.monitors

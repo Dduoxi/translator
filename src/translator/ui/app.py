@@ -1,6 +1,6 @@
 """Assemble the product: overlay + pipeline + tray + settings window.
 
-This is what ``fpst run`` starts. Keeping the wiring in one place means the CLI
+This is what ``translator run`` starts. Keeping the wiring in one place means the CLI
 stays a thin argument parser and the whole thing can be driven headlessly in
 tests.
 """
@@ -65,7 +65,7 @@ def run_app(
     """Build everything and hand control to Qt. Returns the process exit code."""
     path = Path(config_path) if config_path else default_config_path()
     app = create_app()
-    app.setApplicationName("FPS 翻译")
+    app.setApplicationName("Translator")
 
     controller = AppController(path)
     cfg = controller.cfg
@@ -192,7 +192,7 @@ def run_app(
     if show_settings or demo:
         open_settings()
     elif tray is not None:
-        tray.notify("FPS 翻译已启动", "单击托盘图标打开设置，中键暂停")
+        tray.notify("Translator已启动", "单击托盘图标打开设置，中键暂停")
 
     # Qt blocks Python signal handling unless something wakes the loop.
     import signal

@@ -57,7 +57,7 @@ class TrayIcon(QObject):
     ) -> None:
         super().__init__(parent)
         self._tray = QSystemTrayIcon(make_icon(STATE_COLOURS[RunState.STOPPED]), self)
-        self._tray.setToolTip("FPS 翻译")
+        self._tray.setToolTip("Translator")
         self._state = RunState.STOPPED
 
         menu = QMenu()
@@ -85,7 +85,7 @@ class TrayIcon(QObject):
         self._tray.activated.connect(self._on_activated)
         self._on_settings = on_settings
         self._on_toggle = on_toggle
-        self._tray.setToolTip("FPS 翻译 · 点击打开设置")
+        self._tray.setToolTip("Translator · 点击打开设置")
         self._tray.show()
 
     # ------------------------------------------------------------------ state
@@ -95,7 +95,7 @@ class TrayIcon(QObject):
         self._toggle_action.setText("暂停" if state == RunState.RUNNING else "启动")
 
     def set_status(self, text: str) -> None:
-        self._tray.setToolTip(f"FPS 翻译\n{text}\n单击打开设置，中键暂停/启动")
+        self._tray.setToolTip(f"Translator\n{text}\n单击打开设置，中键暂停/启动")
 
     def notify(self, title: str, message: str) -> None:
         try:

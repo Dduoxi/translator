@@ -17,7 +17,7 @@ class MssSource(ScreenSource):
     """Grabs one monitor, optionally cropped to a region of interest.
 
     mss has no change notification, so ``grab`` always returns a frame; wrap this
-    in :class:`fpst.capture.gate.ChangedOnly` if you want cheap skipping.
+    in :class:`translator.capture.gate.ChangedOnly` if you want cheap skipping.
     """
 
     name = "mss"

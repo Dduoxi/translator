@@ -1,4 +1,4 @@
-from fpst.core.types import Lang, Rect, Source, Subtitle, TextRegion
+from translator.core.types import Lang, Rect, Source, Subtitle, TextRegion
 
 
 def test_rect_relative_roundtrip():

@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from fpst.core.config import TranslateConfig
-from fpst.runtime import credentials as creds
-from fpst.runtime.credentials import (
+from translator.core.config import TranslateConfig
+from translator.runtime import credentials as creds
+from translator.runtime.credentials import (
     MissingApiKey,
     clear_api_key,
     ensure_api_key,
@@ -42,7 +42,7 @@ class FakeKeyring:
 def fake_keyring(monkeypatch):
     ring = FakeKeyring()
     monkeypatch.setattr(creds, "_keyring", lambda: ring)
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
     return ring
 
 
@@ -66,10 +66,10 @@ def test_save_and_load_roundtrip(fake_keyring):
 
 def test_env_var_beats_keyring(fake_keyring, monkeypatch):
     save_api_key("from-keyring")
-    monkeypatch.setenv("FPST_API_KEY", "from-env")
+    monkeypatch.setenv("TRANSLATOR_API_KEY", "from-env")
     key, source = load_api_key(_cfg())
     assert key == "from-env"
-    assert source == "env:FPST_API_KEY"
+    assert source == "env:TRANSLATOR_API_KEY"
 
 
 def test_keyring_beats_plaintext_config(fake_keyring):
@@ -81,7 +81,7 @@ def test_keyring_beats_plaintext_config(fake_keyring):
 
 def test_config_is_the_last_resort(monkeypatch):
     monkeypatch.setattr(creds, "_keyring", lambda: None)
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
     key, source = load_api_key(_cfg(api_key="from-config"))
     assert key == "from-config"
     assert source == "config"
@@ -89,7 +89,7 @@ def test_config_is_the_last_resort(monkeypatch):
 
 def test_nothing_stored(monkeypatch):
     monkeypatch.setattr(creds, "_keyring", lambda: None)
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
     assert load_api_key(_cfg()) == ("", "none")
 
 
@@ -210,7 +210,7 @@ def test_local_endpoint_bypasses_the_requirement(monkeypatch):
 
 
 def test_missing_key_without_a_prompt_raises(fake_keyring):
-    with pytest.raises(MissingApiKey, match="FPST_API_KEY"):
+    with pytest.raises(MissingApiKey, match="TRANSLATOR_API_KEY"):
         ensure_api_key(_cfg(), interactive=False)
 
 

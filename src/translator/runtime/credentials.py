@@ -45,7 +45,10 @@ __all__ = [
     "MissingApiKey",
 ]
 
-SERVICE_NAME = "fps-translator"
+SERVICE_NAME = "translator"
+LEGACY_SERVICE_NAME = "fps-translator"
+"""Pre-rename service name. Read as a fallback so existing stored credentials
+survive the rename, and rewritten on the next save."""
 _ACCOUNT = "api_key"
 _BAIDU_APPID = "baidu_appid"
 _BAIDU_KEY = "baidu_key"
@@ -79,13 +82,15 @@ def load_api_key(cfg: TranslateConfig) -> tuple[str, str]:
 
     store = _keyring()
     if store is not None:
-        try:
-            stored = store.get_password(SERVICE_NAME, _ACCOUNT)
-        except Exception as exc:  # noqa: BLE001
-            log.debug("credential store read failed: %s", exc)
-            stored = None
-        if stored:
-            return stored.strip(), "keyring"
+        stored = None
+        for service in (SERVICE_NAME, LEGACY_SERVICE_NAME):
+            try:
+                stored = store.get_password(service, _ACCOUNT)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("credential store read failed: %s", exc)
+                stored = None
+            if stored:
+                return stored.strip(), "keyring"
 
     if cfg.api_key.strip():
         return cfg.api_key.strip(), "config"
@@ -118,12 +123,16 @@ def load_baidu(cfg: TranslateConfig) -> tuple[str, str, str]:
     if not (appid and secret):
         store = _keyring()
         if store is not None:
-            try:
-                stored_id = store.get_password(SERVICE_NAME, _BAIDU_APPID)
-                stored_key = store.get_password(SERVICE_NAME, _BAIDU_KEY)
-            except Exception as exc:  # noqa: BLE001
-                log.debug("credential store read failed: %s", exc)
-                stored_id = stored_key = None
+            stored_id = stored_key = None
+            for service in (SERVICE_NAME, LEGACY_SERVICE_NAME):
+                try:
+                    stored_id = store.get_password(service, _BAIDU_APPID)
+                    stored_key = store.get_password(service, _BAIDU_KEY)
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("credential store read failed: %s", exc)
+                    stored_id = stored_key = None
+                if stored_id and stored_key:
+                    break
             if stored_id and stored_key:
                 return stored_id.strip(), stored_key.strip(), "keyring"
     if appid and secret:
@@ -208,14 +217,14 @@ def ensure_baidu(
         if source == "config":
             log.warning(
                 "Baidu credentials read from config.toml (plaintext). "
-                "Prefer `fpst auth set` to store them in the OS credential store."
+                "Prefer `translator auth set` to store them in the OS credential store."
             )
         return appid, secret
 
     if not interactive:
         raise MissingApiKey(
             f"未找到百度翻译凭据。请设置 {cfg.baidu_appid_env} / {cfg.baidu_key_env}，"
-            "或运行 `fpst auth set`。"
+            "或运行 `translator auth set`。"
         )
 
     print()
@@ -365,12 +374,12 @@ def ensure_api_key(
         if source == "config":
             log.warning(
                 "API key read from config.toml (plaintext). Consider storing it in "
-                "the OS credential store instead: run `fpst auth set`."
+                "the OS credential store instead: run `translator auth set`."
             )
         return key
 
     if not interactive:
-        raise MissingApiKey(f"no API key found. Set {cfg.api_key_env}, or run `fpst auth set`.")
+        raise MissingApiKey(f"no API key found. Set {cfg.api_key_env}, or run `translator auth set`.")
 
     print(_PROMPT.format(base_url=cfg.base_url, model=cfg.model, reason=reason))
     try:

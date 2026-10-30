@@ -1,6 +1,6 @@
 """First-run setup: key, regions, then straight into the overlay.
 
-The goal is that ``fpst run`` on a fresh install ends with subtitles on screen,
+The goal is that ``translator run`` on a fresh install ends with subtitles on screen,
 without the user reading docs or hand-editing TOML. Each step is skipped when it
 is already satisfied, so this doubles as a repair path.
 """

@@ -15,13 +15,13 @@ __all__ = ["load_builtin_engines", "MISSING"]
 log = logging.getLogger(__name__)
 
 MODULES = [
-    "fpst.translate.mock",
-    "fpst.ocr.mock",
-    "fpst.capture.mss_source",
-    "fpst.capture.dxgi",
-    "fpst.ocr.rapidocr_engine",
-    "fpst.translate.baidu",
-    "fpst.translate.llm",
+    "translator.translate.mock",
+    "translator.ocr.mock",
+    "translator.capture.mss_source",
+    "translator.capture.dxgi",
+    "translator.ocr.rapidocr_engine",
+    "translator.translate.baidu",
+    "translator.translate.llm",
 ]
 
 MISSING: dict[str, str] = {}

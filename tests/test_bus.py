@@ -1,5 +1,5 @@
-from fpst.core.bus import EventBus
-from fpst.core.types import Lang, Source, Subtitle, TextRegion
+from translator.core.bus import EventBus
+from translator.core.types import Lang, Source, Subtitle, TextRegion
 
 
 def test_subscribe_and_publish():

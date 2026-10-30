@@ -116,7 +116,7 @@ class SubtitleOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setWindowTitle("fpst overlay")
+        self.setWindowTitle("translator overlay")
 
         self._origin = origin
         self._monitor_index = monitor

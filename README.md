@@ -1,4 +1,4 @@
-# fps-translator
+# translator
 
 多人游戏内实时翻译：**看懂屏幕、听懂队友**。
 
@@ -27,11 +27,11 @@ AudioSource ──▶ VoiceSegmenter ──▶ ASREngine ─┘        (Qt 透�
 (process loopback)    (VAD)      (faster-whisper)
 ```
 
-每一环都是 `fpst.core.interfaces` 里的抽象基类，通过 `fpst.core.registry`
+每一环都是 `translator.core.interfaces` 里的抽象基类，通过 `translator.core.registry`
 按名字注册和创建，因此任何一环都能被配置文件替换掉。
 
 ```
-src/fpst/
+src/translator/
 ├── core/        types, bus, config, registry, interfaces  ← 无第三方依赖，跨平台
 ├── capture/     屏幕源
 ├── ocr/         文字识别
@@ -57,13 +57,13 @@ uv venv --python 3.11
 uv pip install -e ".[dev,screen,ocr,translate,ui]"
 
 # 环境体检（Windows 上先跑这个）
-python -m fpst doctor
+python -m translator doctor
 
 # 生成默认配置
-python -m fpst config
+python -m translator config
 
 # 截一次屏，看看 OCR 能读出什么（调 ROI 用这个）
-python -m fpst scan --region 0.02 0.55 0.5 0.4
+python -m translator scan --region 0.02 0.55 0.5 0.4
 
 # 测试（-m 'not slow' 跳过加载真模型的用例）
 python -m pytest -q
@@ -84,8 +84,8 @@ Windows 机器上建议 Python **3.11**（faster-whisper / PySide6 的轮子最�
 1. 把仓库推到 GitHub
 2. 打开 **Actions → Windows build → Run workflow**
 
-构建完成后在该次运行的 **Artifacts** 里下载 `FpsTranslator-Setup`，那是一个可直接安装的
-`FpsTranslator-Setup.exe`。
+构建完成后在该次运行的 **Artifacts** 里下载 `Translator-Setup`，那是一个可直接安装的
+`Translator-Setup.exe`。
 
 打 tag 会自动发 Release：
 
@@ -110,8 +110,8 @@ powershell -ExecutionPolicy Bypass -File packaging\make_installer.ps1
 
 | 路径 | 内容 |
 |---|---|
-| `dist\FpsTranslator\FpsTranslator.exe` | 免安装版，整个目录可拷走 |
-| `dist\installer\FpsTranslator-Setup.exe` | 安装包（LZMA 压缩，约 130 MB）|
+| `dist\Translator\Translator.exe` | 免安装版，整个目录可拷走 |
+| `dist\installer\Translator-Setup.exe` | 安装包（LZMA 压缩，约 130 MB）|
 
 ### 体积构成（实测，Linux 版同构）
 
@@ -131,13 +131,13 @@ opencv-python-headless**——rapidocr 默认拉的是 GUI 版，会白带一整
 首次启动会弹向导：先填翻译凭据，再拖框选游戏里的聊天区域。凭据存进 **Windows 凭据管理器**
 （DPAPI 加密），不落配置文件。
 
-出问题看日志：`%APPDATA%\FpsTranslator\logs\fpst.log`
+出问题看日志：`%APPDATA%\Translator\logs\translator.log`
 
 ---
 
 ## 界面
 
-`fpst run` 启动的是完整应用：**托盘图标 + 透明字幕 + 设置窗口**。
+`translator run` 启动的是完整应用：**托盘图标 + 透明字幕 + 设置窗口**。
 
 ```
 托盘（游戏中唯一能操作的入口）
@@ -165,26 +165,26 @@ opencv-python-headless**——rapidocr 默认拉的是 GUI 版，会白带一整
 ## 配置翻译服务（唯一需要密钥的地方）
 
 **密钥是启动的硬性前提**——没有密钥不允许运行（`engine = "mock"` 除外，那是调试开关）。
-首次运行 `fpst watch` 会直接提示输入，校验通过后才开始工作：
+首次运行 `translator watch` 会直接提示输入，校验通过后才开始工作：
 
 ```bash
-fpst auth set        # 交互式输入，自动校验并存进系统凭据管理器
-fpst auth status     # 查看（掩码显示）和来源
-fpst auth clear      # 删除
+translator auth set        # 交互式输入，自动校验并存进系统凭据管理器
+translator auth status     # 查看（掩码显示）和来源
+translator auth clear      # 删除
 ```
 
 存储优先级（第一个命中的生效）：
 
 | 顺序 | 位置 | 说明 |
 |---|---|---|
-| 1 | 环境变量 `FPST_API_KEY` | CI / 高级用户 |
+| 1 | 环境变量 `TRANSLATOR_API_KEY` | CI / 高级用户 |
 | 2 | **系统凭据管理器** | Windows 凭据管理器（DPAPI 加密，绑定用户账户）|
 | 3 | `config.toml` | 兼容用，会打印警告 |
 
 不写进配置文件是有意的：明文 key 一旦截图或发到群里就泄露了。
 
 ```bash
-export FPST_API_KEY="sk-..."        # Windows: setx FPST_API_KEY "sk-..."
+export TRANSLATOR_API_KEY="sk-..."        # Windows: setx TRANSLATOR_API_KEY "sk-..."
 ```
 
 本地模型（Ollama/LM Studio，`localhost`/`127.0.0.1`）**不要求密钥**，自动跳过。
@@ -201,16 +201,16 @@ export FPST_API_KEY="sk-..."        # Windows: setx FPST_API_KEY "sk-..."
 engine = "auto"     # auto 优先 llm，没有 key 时用 baidu；也可写死 "llm" / "baidu"
 
 # --- engine = "baidu" 时用 ---
-baidu_appid = ""            # 建议用环境变量 FPST_BAIDU_APPID
-baidu_key = ""              # 建议用环境变量 FPST_BAIDU_KEY
+baidu_appid = ""            # 建议用环境变量 TRANSLATOR_BAIDU_APPID
+baidu_key = ""              # 建议用环境变量 TRANSLATOR_BAIDU_KEY
 baidu_qps = 1.0             # 免费版是 1 QPS，超了会返回 54003
 ```
 
 百度凭据同样存进系统凭据管理器：
 
 ```bash
-fpst auth set        # 按当前 engine 提示输入（百度要 APPID + 密钥）
-fpst auth --verify   # 实测一次，确认签名正确
+translator auth set        # 按当前 engine 提示输入（百度要 APPID + 密钥）
+translator auth --verify   # 实测一次，确认签名正确
 ```
 
 **OpenAI 兼容端点**（`engine = "llm"`）只改 `base_url` + `model`：
@@ -277,7 +277,7 @@ DeepSeek V4 默认会「先思考再回答」。同一份请求跑 5 次实测�
 ## 资源预算（硬约束）
 
 本产品的定位是**游戏旁边的隐形字幕**，不是要抢 CPU。所有实现取舍都服从这张表，
-由 `fpst bench` 强制检查：
+由 `translator bench` 强制检查：
 
 | 资源 | 预算 | 当前实测（16 线程 / Ryzen 4800U） |
 |---|---|---|
@@ -287,7 +287,7 @@ DeepSeek V4 默认会「先思考再回答」。同一份请求跑 5 次实测�
 | 磁盘 | 稳态 0（只在启动加载模型） | 0 |
 
 ```bash
-python -m fpst bench --region 0.0 0.62 0.36 0.16   # 在你机器上验证
+python -m translator bench --region 0.0 0.62 0.36 0.16   # 在你机器上验证
 ```
 
 ### 成本模型

@@ -3,9 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from fpst.core.types import Frame, Lang, Source, TextRegion
-from fpst.ocr import postprocess
-from fpst.ocr.lines import drop_duplicates, drop_oversized, merge_horizontal
+from translator.core.types import Frame, Lang, Source, TextRegion
+from translator.ocr import postprocess
+from translator.ocr.lines import drop_duplicates, drop_oversized, merge_horizontal
 
 
 def region(text: str, bbox: tuple[int, int, int, int]) -> TextRegion:
@@ -96,9 +96,9 @@ def test_postprocess_without_merge_filters_empty():
 
 
 def test_mock_engine_registered_and_scripted():
-    import fpst.ocr.mock  # noqa: F401 - registers the engine
-    from fpst.core.interfaces import OCREngine
-    from fpst.core.registry import create
+    import translator.ocr.mock  # noqa: F401 - registers the engine
+    from translator.core.interfaces import OCREngine
+    from translator.core.registry import create
 
     engine = create(OCREngine, "mock", lines=["alpha", "beta"])
     frame = Frame(image=np.zeros((10, 10, 3), np.uint8))
@@ -134,7 +134,7 @@ def _render_chat() -> np.ndarray:
 @pytest.mark.slow
 def test_rapidocr_reads_rendered_chat():
     pytest.importorskip("rapidocr_onnxruntime")
-    from fpst.ocr.rapidocr_engine import RapidOCREngine
+    from translator.ocr.rapidocr_engine import RapidOCREngine
 
     engine = RapidOCREngine(lang="en")
     engine.warmup()

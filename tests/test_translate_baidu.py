@@ -5,12 +5,12 @@ import hashlib
 import httpx
 import pytest
 
-from fpst.core.config import TranslateConfig
-from fpst.core.interfaces import Translator
-from fpst.core.types import Lang
-from fpst.translate import has_baidu, make_translator, resolve_engine
-from fpst.translate.baidu import ENDPOINT, ERROR_HINTS, BaiduTranslator
-from fpst.translate.cache import CachingTranslator
+from translator.core.config import TranslateConfig
+from translator.core.interfaces import Translator
+from translator.core.types import Lang
+from translator.translate import has_baidu, make_translator, resolve_engine
+from translator.translate.baidu import ENDPOINT, ERROR_HINTS, BaiduTranslator
+from translator.translate.cache import CachingTranslator
 
 
 def _transport(payload: dict, captured: dict | None = None, status: int = 200):
@@ -178,8 +178,8 @@ def test_http_error_falls_back():
 
 
 def test_missing_credentials_raise_a_helpful_error(monkeypatch):
-    monkeypatch.delenv("FPST_BAIDU_APPID", raising=False)
-    monkeypatch.delenv("FPST_BAIDU_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_BAIDU_APPID", raising=False)
+    monkeypatch.delenv("TRANSLATOR_BAIDU_KEY", raising=False)
     engine = BaiduTranslator(appid="", secret_key="")
     with pytest.raises(RuntimeError, match="appid"):
         engine.warmup()
@@ -220,36 +220,36 @@ def test_baidu_is_selectable_explicitly():
 
 
 def test_llm_wins_over_baidu_when_both_are_configured(monkeypatch):
-    monkeypatch.setenv("FPST_BAIDU_APPID", "id")
-    monkeypatch.setenv("FPST_BAIDU_KEY", "secret")
-    monkeypatch.setenv("FPST_API_KEY", "sk-x")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_APPID", "id")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_KEY", "secret")
+    monkeypatch.setenv("TRANSLATOR_API_KEY", "sk-x")
     assert resolve_engine(_cfg(engine="auto")) == "llm"
 
 
 def test_baidu_is_used_when_only_it_is_configured(monkeypatch):
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
-    monkeypatch.setenv("FPST_BAIDU_APPID", "id")
-    monkeypatch.setenv("FPST_BAIDU_KEY", "secret")
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
+    monkeypatch.setenv("TRANSLATOR_BAIDU_APPID", "id")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_KEY", "secret")
     assert resolve_engine(_cfg(engine="auto")) == "baidu"
 
 
 def test_resolve_auto_prefers_baidu_when_configured(monkeypatch):
-    monkeypatch.setenv("FPST_BAIDU_APPID", "id")
-    monkeypatch.setenv("FPST_BAIDU_KEY", "secret")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_APPID", "id")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_KEY", "secret")
     assert has_baidu(_cfg()) is True
     assert resolve_engine(_cfg(engine="auto")) == "baidu"
 
 
 def test_make_translator_builds_baidu_behind_the_cache(monkeypatch):
-    monkeypatch.setenv("FPST_BAIDU_APPID", "id")
-    monkeypatch.setenv("FPST_BAIDU_KEY", "secret")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_APPID", "id")
+    monkeypatch.setenv("TRANSLATOR_BAIDU_KEY", "secret")
     translator = make_translator(_cfg(engine="baidu"))
     assert isinstance(translator, CachingTranslator)
     assert isinstance(translator, Translator)
 
 
 def test_language_codes_match_baidu():
-    from fpst.translate.baidu import LANG_CODES
+    from translator.translate.baidu import LANG_CODES
 
     assert LANG_CODES[Lang.JA] == "jp", "Baidu uses 'jp', not 'ja'"
     assert LANG_CODES[Lang.KO] == "kor"

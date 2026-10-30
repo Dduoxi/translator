@@ -7,7 +7,7 @@ name: Windows build
 # real .exe from this repository.
 #
 # Download it from:
-#   * Actions run page -> Artifacts -> FpsTranslator-Setup
+#   * Actions run page -> Artifacts -> Translator-Setup
 #   * or the Releases page, when the build was triggered by a v* tag
 #
 # Trigger manually from the Actions tab, on every push, or by pushing a tag:
@@ -47,10 +47,10 @@ jobs:
           python -c "import cv2; print('cv2', cv2.__version__)"
 
       - name: Smoke test
-        run: python -m fpst doctor
+        run: python -m translator doctor
 
       - name: Build the application
-        run: pyinstaller --noconfirm --clean --distpath dist --workpath build packaging/fpst.spec
+        run: pyinstaller --noconfirm --clean --distpath dist --workpath build packaging/translator.spec
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -65,8 +65,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: FpsTranslator-Setup
-          path: dist/installer/FpsTranslator-Setup.exe
+          name: Translator-Setup
+          path: dist/installer/Translator-Setup.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -74,5 +74,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/installer/FpsTranslator-Setup.exe
+          files: dist/installer/Translator-Setup.exe
           generate_release_notes: true

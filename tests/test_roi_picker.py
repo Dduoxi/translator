@@ -12,7 +12,7 @@ from PySide6.QtCore import QRect, Qt  # noqa: E402
 from PySide6.QtGui import QKeyEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from fpst.ui.roi_picker import (  # noqa: E402
+from translator.ui.roi_picker import (  # noqa: E402
     MIN_SIZE,
     PickedRegion,
     RoiPicker,
@@ -77,7 +77,7 @@ def test_fractions_are_relative_to_the_monitor(picker, geometry):
 
 
 def test_fractions_roundtrip_to_the_same_pixels(picker, geometry):
-    from fpst.core.types import Rect
+    from translator.core.types import Rect
 
     box = _at(geometry, 0.12, 0.6, 0.4, 0.2)
     result = picker._make_result(box)
@@ -204,7 +204,7 @@ def test_pick_regions_works_inside_a_running_event_loop(app):
     on top of the overlay."""
     from PySide6.QtCore import QEventLoop, QTimer
 
-    import fpst.ui.roi_picker as rp
+    import translator.ui.roi_picker as rp
 
     holder: dict[str, object] = {}
 
@@ -236,7 +236,7 @@ def test_pick_regions_works_inside_a_running_event_loop(app):
 
 def test_second_pick_while_one_is_open_is_ignored(app):
     """Two full-screen dim layers would look like a hang."""
-    import fpst.ui.roi_picker as rp
+    import translator.ui.roi_picker as rp
 
     class Fake:
         def raise_(self):

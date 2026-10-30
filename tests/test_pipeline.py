@@ -6,15 +6,15 @@ import time
 import numpy as np
 import pytest
 
-from fpst.capture.gate import ChangedOnly
-from fpst.core.bus import EventBus
-from fpst.core.dedupe import RecentTexts, normalise
-from fpst.core.interfaces import ScreenSource
-from fpst.core.latest import LatestValue
-from fpst.core.types import Frame, Subtitle
-from fpst.ocr.mock import MockOCREngine
-from fpst.pipeline import ScreenPipeline
-from fpst.translate.mock import MockTranslator
+from translator.capture.gate import ChangedOnly
+from translator.core.bus import EventBus
+from translator.core.dedupe import RecentTexts, normalise
+from translator.core.interfaces import ScreenSource
+from translator.core.latest import LatestValue
+from translator.core.types import Frame, Subtitle
+from translator.ocr.mock import MockOCREngine
+from translator.pipeline import ScreenPipeline
+from translator.translate.mock import MockTranslator
 
 # ---------------------------------------------------------------- LatestValue
 
@@ -221,7 +221,7 @@ def test_pipeline_with_real_ocr_end_to_end():
 
     from PIL import Image, ImageDraw, ImageFont
 
-    from fpst.ocr.rapidocr_engine import RapidOCREngine
+    from translator.ocr.rapidocr_engine import RapidOCREngine
 
     font_path = next(
         (
@@ -434,7 +434,7 @@ def test_translation_runs_on_its_own_thread():
         assert wait_until(lambda: "name" in seen, timeout=5.0)
     finally:
         pipeline.stop()
-    assert seen["name"] == "fpst-translate"
+    assert seen["name"] == "translator-translate"
 
 
 # ------------------------------------------------------------- multiple ROIs
@@ -482,7 +482,7 @@ def test_multiple_sources_each_produce_subtitles_with_their_region_index():
 
 def test_simultaneous_changes_in_two_regions_are_both_processed():
     """Regression: a single-slot mailbox would let one region overwrite the other."""
-    from fpst.core.latest import LatestPerKey
+    from translator.core.latest import LatestPerKey
 
     box: LatestPerKey[int, str] = LatestPerKey()
     box.put(0, "chat")
@@ -643,7 +643,7 @@ def test_identical_text_in_two_regions_is_not_deduped():
 
 def test_bare_player_name_is_not_shown_as_a_subtitle():
     """OCR boxes the name separately; translating it produces a useless bubble."""
-    from fpst.pipeline.screen import _is_bare_name
+    from translator.pipeline.screen import _is_bare_name
 
     assert _is_bare_name("xX_Shadow_Xx", "xX_Shadow_Xx") is True
     assert _is_bare_name("Echo", "Echo") is True

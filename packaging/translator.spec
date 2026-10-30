@@ -2,7 +2,7 @@
 """PyInstaller spec for the Windows build.
 
 Build on Windows:  pip install -r packaging/requirements-build.txt
-                   pyinstaller packaging/fpst.spec
+                   pyinstaller packaging/translator.spec
 
 Notes that matter for this app:
 
@@ -10,7 +10,7 @@ Notes that matter for this app:
   engine reads that yaml by path and copies it to a temp file, so both the
   models directory and config.yaml must be collected as data.
 * The app is windowed (tray program): a console window would flash on start.
-  Diagnostics go to %APPDATA%\\FpsTranslator\\logs\\fpst.log instead.
+  Diagnostics go to %APPDATA%\\Translator\\logs\\translator.log instead.
 * PySide6 pulls in a lot we do not use; the excludes below cut roughly 100 MB.
 """
 
@@ -31,13 +31,13 @@ for package in ("rapidocr_onnxruntime",):
 hiddenimports += collect_submodules("keyring.backends")
 
 hiddenimports += [
-    "fpst.translate.baidu",
-    "fpst.translate.llm",
-    "fpst.translate.mock",
-    "fpst.ocr.rapidocr_engine",
-    "fpst.ocr.mock",
-    "fpst.capture.mss_source",
-    "fpst.capture.dxgi",
+    "translator.translate.baidu",
+    "translator.translate.llm",
+    "translator.translate.mock",
+    "translator.ocr.rapidocr_engine",
+    "translator.ocr.mock",
+    "translator.capture.mss_source",
+    "translator.capture.dxgi",
 ]
 
 excludes = [
@@ -92,7 +92,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="FpsTranslator",
+    name="Translator",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -108,5 +108,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="FpsTranslator",
+    name="Translator",
 )

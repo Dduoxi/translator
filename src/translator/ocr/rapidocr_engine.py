@@ -27,7 +27,7 @@ Other findings:
   crop to 736px on the short side -- 4x the pixels for an already-legible crop.
 * The recogniser dominates (75 ms det vs 289 ms rec). The lever is therefore not
 running OCR at all when nothing changed -- see
-:class:`fpst.capture.gate.ChangedOnly`.
+:class:`translator.capture.gate.ChangedOnly`.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ class RapidOCREngine(OCREngine):
             shape[1] = self._rec_height
             cfg["Rec"]["rec_img_shape"] = shape
 
-        fd, path = tempfile.mkstemp(suffix=".yaml", prefix="fpst-ocr-")
+        fd, path = tempfile.mkstemp(suffix=".yaml", prefix="translator-ocr-")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             yaml.safe_dump(cfg, fh, allow_unicode=True)
         return path

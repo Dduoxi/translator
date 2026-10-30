@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import pytest
 
-import fpst.ocr.mock  # noqa: F401 - registers ocr/mock
-import fpst.translate.baidu  # noqa: F401 - registers translate/baidu
-import fpst.translate.mock  # noqa: F401 - registers translate/mock
+import translator.ocr.mock  # noqa: F401 - registers ocr/mock
+import translator.translate.baidu  # noqa: F401 - registers translate/baidu
+import translator.translate.mock  # noqa: F401 - registers translate/mock
 
 
 @pytest.fixture(autouse=True)
@@ -26,10 +26,10 @@ def _isolate_credentials(monkeypatch):
     Tests that need a store install their own fake via the `fake_keyring`
     fixture, which is applied after this one and therefore wins.
     """
-    from fpst.runtime import credentials
+    from translator.runtime import credentials
 
     monkeypatch.setattr(credentials, "_keyring", lambda: None)
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,7 @@ def _isolate_config_path(tmp_path, monkeypatch):
     default_config_path() and overwrote the developer's real regions with an
     empty list. Every test now gets a private app-data directory.
     """
-    from fpst.core import config as config_mod
+    from translator.core import config as config_mod
 
     data_dir = tmp_path / "appdata"
     data_dir.mkdir(parents=True, exist_ok=True)

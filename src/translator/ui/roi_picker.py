@@ -6,7 +6,7 @@ so this draws a dimmed full-screen layer where you drag as many boxes as you
 want, then confirm.
 
 Fractions (not pixels) are what we store, so the same config survives a
-resolution change -- see :meth:`fpst.core.types.Rect.from_relative`.
+resolution change -- see :meth:`translator.core.types.Rect.from_relative`.
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ class RoiPicker(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.setMouseTracking(True)
-        self.setWindowTitle("fpst roi picker")
+        self.setWindowTitle("translator roi picker")
         self.setGeometry(screen.geometry())
 
         self._screen = screen

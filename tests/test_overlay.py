@@ -13,10 +13,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QCoreApplication, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from fpst.core.bus import EventBus  # noqa: E402
-from fpst.core.config import UIConfig  # noqa: E402
-from fpst.core.types import Lang, Source, Subtitle  # noqa: E402
-from fpst.ui.overlay import OverlayController, SubtitleOverlay  # noqa: E402
+from translator.core.bus import EventBus  # noqa: E402
+from translator.core.config import UIConfig  # noqa: E402
+from translator.core.types import Lang, Source, Subtitle  # noqa: E402
+from translator.ui.overlay import OverlayController, SubtitleOverlay  # noqa: E402
 
 
 @pytest.fixture(scope="module")

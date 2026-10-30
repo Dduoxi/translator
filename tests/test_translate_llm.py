@@ -5,12 +5,12 @@ import json
 import httpx
 import pytest
 
-from fpst.core.config import TranslateConfig
-from fpst.core.interfaces import Translator
-from fpst.core.types import Lang
-from fpst.translate import has_api_key, make_translator, resolve_engine
-from fpst.translate.cache import CachingTranslator
-from fpst.translate.llm import LLMTranslator
+from translator.core.config import TranslateConfig
+from translator.core.interfaces import Translator
+from translator.core.types import Lang
+from translator.translate import has_api_key, make_translator, resolve_engine
+from translator.translate.cache import CachingTranslator
+from translator.translate.llm import LLMTranslator
 
 
 def _reply(content: str, status: int = 200) -> httpx.MockTransport:
@@ -144,9 +144,9 @@ def test_glossary_and_count_reach_the_prompt():
 
 
 def test_missing_key_raises_a_helpful_error(monkeypatch):
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
-    engine = LLMTranslator(api_key=None, api_key_env="FPST_API_KEY")
-    with pytest.raises(RuntimeError, match="FPST_API_KEY"):
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
+    engine = LLMTranslator(api_key=None, api_key_env="TRANSLATOR_API_KEY")
+    with pytest.raises(RuntimeError, match="TRANSLATOR_API_KEY"):
         engine.warmup()
 
 
@@ -161,12 +161,12 @@ def _cfg(**kwargs) -> TranslateConfig:
 
 
 def test_auto_without_key_falls_back_to_mock(monkeypatch):
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
     assert resolve_engine(_cfg(engine="auto")) == "mock"
 
 
 def test_auto_with_env_key_uses_llm(monkeypatch):
-    monkeypatch.setenv("FPST_API_KEY", "abc")
+    monkeypatch.setenv("TRANSLATOR_API_KEY", "abc")
     assert has_api_key(_cfg()) is True
     assert resolve_engine(_cfg(engine="auto")) == "llm"
 
@@ -176,12 +176,12 @@ def test_auto_with_inline_key_uses_llm():
 
 
 def test_explicit_engine_is_respected_without_key(monkeypatch):
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
     assert resolve_engine(_cfg(engine="mock")) == "mock"
 
 
 def test_make_translator_wraps_in_cache(monkeypatch):
-    monkeypatch.delenv("FPST_API_KEY", raising=False)
+    monkeypatch.delenv("TRANSLATOR_API_KEY", raising=False)
     translator = make_translator(_cfg())
     assert isinstance(translator, CachingTranslator)
     assert isinstance(translator, Translator)
@@ -357,8 +357,8 @@ def test_empty_context_shows_placeholder():
 
 
 def test_glossary_extra_merges_over_defaults():
-    from fpst.core.config import DEFAULT_GLOSSARY
-    from fpst.translate import merged_glossary
+    from translator.core.config import DEFAULT_GLOSSARY
+    from translator.translate import merged_glossary
 
     cfg = TranslateConfig(glossary=dict(DEFAULT_GLOSSARY))
     cfg.glossary_extra = {"tp": "传送", "gg": "牛"}
@@ -369,14 +369,14 @@ def test_glossary_extra_merges_over_defaults():
 
 
 def test_setting_glossary_replaces_the_defaults():
-    from fpst.translate import merged_glossary
+    from translator.translate import merged_glossary
 
     cfg = TranslateConfig(glossary={"tp": "传送"})
     assert merged_glossary(cfg) == {"tp": "传送"}
 
 
 def test_blank_entries_are_dropped():
-    from fpst.translate import merged_glossary
+    from translator.translate import merged_glossary
 
     cfg = TranslateConfig(glossary={"a": "b", "c": "  "})
     assert merged_glossary(cfg) == {"a": "b"}

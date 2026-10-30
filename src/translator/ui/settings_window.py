@@ -511,7 +511,7 @@ class SettingsWindow(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("FPS 翻译 · 设置")
+        self.setWindowTitle("Translator · 设置")
         self.resize(760, 720)
 
         self.regions = RegionsTab(on_pick_regions)

@@ -108,7 +108,7 @@ class LLMTranslator(Translator):
         base_url: str = "https://api.deepseek.com/v1",
         model: str = "deepseek-chat",
         api_key: str | None = None,
-        api_key_env: str = "FPST_API_KEY",
+        api_key_env: str = "TRANSLATOR_API_KEY",
         glossary: dict[str, str] | None = None,
         timeout_s: float = 20.0,
         retries: int = 1,

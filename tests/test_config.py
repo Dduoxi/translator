@@ -1,4 +1,4 @@
-from fpst.core.config import AppConfig, ScreenConfig
+from translator.core.config import AppConfig, ScreenConfig
 
 
 def test_defaults_load_when_missing(tmp_path):

@@ -93,7 +93,9 @@ DEFAULT_GLOSSARY: dict[str, str] = {
 def app_data_dir() -> Path:
     if sys.platform == "win32":
         base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-        return base / "FpsTranslator"
+        return base / "Translator"
+        # (renamed from FpsTranslator; the old folder is left alone so an
+        #  upgraded install keeps its config, at the cost of one re-setup)
     base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return base / "fps-translator"
 
@@ -234,8 +236,8 @@ class TranslateConfig:
     baidu_appid: str = ""
     baidu_key: str = ""
     """Prefer the environment variables over pasting secrets into this file."""
-    baidu_appid_env: str = "FPST_BAIDU_APPID"
-    baidu_key_env: str = "FPST_BAIDU_KEY"
+    baidu_appid_env: str = "TRANSLATOR_BAIDU_APPID"
+    baidu_key_env: str = "TRANSLATOR_BAIDU_KEY"
     baidu_glossary_prepass: bool = False
     """Substitute glossary terms in the *source* before sending to Baidu.
 
@@ -261,7 +263,7 @@ class TranslateConfig:
     measured 10 s and an empty answer here -- not suitable for subtitles)."""
     api_key: str = ""
     """Prefer the environment variable over pasting a key into this file."""
-    api_key_env: str = "FPST_API_KEY"
+    api_key_env: str = "TRANSLATOR_API_KEY"
     temperature: float = 0.0
     max_tokens: int = 2048
     """Ceiling, not a charge. Only generated tokens are billed."""
@@ -285,7 +287,7 @@ class UIConfig:
     anchor: str = "roi-below"
     """Where the subtitle stack sits.
 
-    ROI-relative (follows the region you selected with `fpst roi`, so your eyes
+    ROI-relative (follows the region you selected with `translator roi`, so your eyes
     never leave the chat box):
         roi-below  just under the scanned region          (default)
         roi-above  just above it
@@ -330,7 +332,7 @@ class PerformanceConfig:
 
     A background overlay shares the machine with something that needs every
     core. These defaults favour low resource use over low latency; the budget
-    they enforce is documented in the README and measured by ``fpst bench``.
+    they enforce is documented in the README and measured by ``translator bench``.
     """
 
     ocr_min_interval: float = 1.5

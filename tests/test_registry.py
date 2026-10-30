@@ -1,9 +1,9 @@
 import pytest
 
-from fpst.core.interfaces import Translator
-from fpst.core.registry import RegistryError, available, create
-from fpst.core.types import Lang
-from fpst.translate.mock import MockTranslator  # noqa: F401 - registers "mock"
+from translator.core.interfaces import Translator
+from translator.core.registry import RegistryError, available, create
+from translator.core.types import Lang
+from translator.translate.mock import MockTranslator  # noqa: F401 - registers "mock"
 
 
 def test_create_known_engine():

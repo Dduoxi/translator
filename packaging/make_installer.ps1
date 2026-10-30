@@ -1,5 +1,5 @@
 <#
-    Wrap dist\FpsTranslator into a single setup .exe.
+    Wrap dist\Translator into a single setup .exe.
 
     Requires Inno Setup 6:  https://jrsoftware.org/isdl.php
     Usage:
@@ -17,9 +17,9 @@ $iscc = @(
 if (-not $iscc) {
     throw "Inno Setup 6 not found. Install it from https://jrsoftware.org/isdl.php"
 }
-if (-not (Test-Path "dist\FpsTranslator\FpsTranslator.exe")) {
-    throw "dist\FpsTranslator missing. Run packaging\build_windows.ps1 first."
+if (-not (Test-Path "dist\Translator\Translator.exe")) {
+    throw "dist\Translator missing. Run packaging\build_windows.ps1 first."
 }
 
 & $iscc "packaging\installer.iss"
-Write-Host "done: dist\installer\FpsTranslator-Setup.exe" -ForegroundColor Green
+Write-Host "done: dist\installer\Translator-Setup.exe" -ForegroundColor Green

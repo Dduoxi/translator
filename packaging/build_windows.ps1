@@ -4,7 +4,7 @@
     Usage (PowerShell, from the repo root):
         powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
 
-    Produces dist\FpsTranslator\FpsTranslator.exe plus a start-menu-free folder
+    Produces dist\Translator\Translator.exe plus a start-menu-free folder
     you can copy anywhere. Run packaging\make_installer.ps1 afterwards if you
     want a single setup .exe.
 #>
@@ -36,12 +36,12 @@ Write-Host "==> switching OpenCV to the headless wheel" -ForegroundColor Cyan
 & $venvPy -c "import cv2; print('cv2', cv2.__version__)"
 
 Write-Host "==> smoke test (engines must register)" -ForegroundColor Cyan
-& $venvPy -m fpst doctor
+& $venvPy -m translator doctor
 
 Write-Host "==> building" -ForegroundColor Cyan
-& $venvPy -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging\fpst.spec
+& $venvPy -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging\translator.spec
 
 Write-Host ""
-Write-Host "done: dist\FpsTranslator\FpsTranslator.exe" -ForegroundColor Green
+Write-Host "done: dist\Translator\Translator.exe" -ForegroundColor Green
 Write-Host "first run: the wizard asks for a translation key, then you drag the chat area."
-Write-Host "logs: %APPDATA%\FpsTranslator\logs\fpst.log"
+Write-Host "logs: %APPDATA%\Translator\logs\translator.log"

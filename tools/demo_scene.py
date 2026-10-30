@@ -10,7 +10,7 @@ matching config for you.
 
 Then run the product normally:
 
-    fpst run --skip-setup --no-settings
+    translator run --skip-setup --no-settings
 """
 
 from __future__ import annotations
@@ -171,7 +171,7 @@ def main() -> int:
         )
 
     if args.write_config:
-        from fpst.core.config import AppConfig
+        from translator.core.config import AppConfig
 
         cfg = AppConfig.load(args.config)
         cfg.screen.monitor_origin = origin

@@ -1,14 +1,14 @@
-"""CLI entry point: ``python -m fpst`` / ``fpst``.
+"""CLI entry point: ``python -m translator`` / ``translator``.
 
-fpst doctor   # environment + engine availability report (run this first on Windows)
-fpst config   # write a commented default config.toml and print its path
-fpst roi      # drag a box on screen -> get ROI fractions to paste into config
-fpst scan     # capture the configured ROI once and print what OCR sees
-fpst watch    # run the always-on scan loop, printing translations
-fpst bench    # measure what this will actually cost your game
-fpst auth     # store / inspect / remove the translation API key
-fpst run      # the actual product: overlay subtitles on screen (--demo to try it)
-fpst setup    # re-run the first-run wizard (key + regions)
+translator doctor   # environment + engine availability report (run this first on Windows)
+translator config   # write a commented default config.toml and print its path
+translator roi      # drag a box on screen -> get ROI fractions to paste into config
+translator scan     # capture the configured ROI once and print what OCR sees
+translator watch    # run the always-on scan loop, printing translations
+translator bench    # measure what this will actually cost your game
+translator auth     # store / inspect / remove the translation API key
+translator run      # the actual product: overlay subtitles on screen (--demo to try it)
+translator setup    # re-run the first-run wizard (key + regions)
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ KINDS = {
 }
 
 # The promise we make to the user: a background overlay may not cost more than
-# this. Enforced by `fpst bench`, achieved by 1-thread OCR + throttling.
+# this. Enforced by `translator bench`, achieved by 1-thread OCR + throttling.
 BUDGET_CPU = 50.0
 """Percent of ONE core, worst case."""
 
@@ -68,7 +68,7 @@ def _setup_frozen_logging() -> None:
     log_dir = app_data_dir() / "logs"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(log_dir / "fpst.log", encoding="utf-8")
+        handler = logging.FileHandler(log_dir / "translator.log", encoding="utf-8")
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
         root = logging.getLogger()
         root.setLevel(logging.INFO)
@@ -192,11 +192,11 @@ def cmd_auth(args: argparse.Namespace) -> int:
         if not key:
             print("key      : MISSING")
             print()
-            print(f"run `fpst auth set` to store one (or set {tr.api_key_env})")
+            print(f"run `translator auth set` to store one (or set {tr.api_key_env})")
             return 1
         print(f"key      : {mask(key)}  (from {source})")
         if source == "config":
-            print("warning  : stored in plaintext in config.toml; prefer `fpst auth set`")
+            print("warning  : stored in plaintext in config.toml; prefer `translator auth set`")
         ok, message = validate_api_key_hint(tr, key, args.verify)
         print(f"check    : {message}")
         return 0 if ok else 1
@@ -256,7 +256,7 @@ def cmd_roi(args: argparse.Namespace) -> int:
     print(f"  regions = {toml_regions(picked)}")
     print()
     print("or use right now:")
-    print(f"  fpst run --region {picked[0].cli_region}   (first region only)")
+    print(f"  translator run --region {picked[0].cli_region}   (first region only)")
 
     if args.verify:
         print()
@@ -453,7 +453,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print(f"未完成：{result.message}", file=sys.stderr)
         return 1
     print()
-    print("完成。现在可以直接运行：fpst run")
+    print("完成。现在可以直接运行：translator run")
     return 0
 
 
@@ -602,7 +602,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="fpst", description="in-game FPS translator")
+    parser = argparse.ArgumentParser(prog="translator", description="in-game FPS translator")
     sub = parser.add_subparsers(dest="command")
 
     p_doctor = sub.add_parser("doctor", help="report environment and available engines")
@@ -686,12 +686,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Line-buffer even when piped to a file/tee, so `fpst watch > log` streams.
+    # Line-buffer even when piped to a file/tee, so `translator watch > log` streams.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
     # A packaged build (PyInstaller) and the portable bundle (pythonw.exe) both
     # run without a console, so stderr is invisible and "it does not work" is
-    # undebuggable. Log to %APPDATA%/FpsTranslator/logs/fpst.log in both cases.
+    # undebuggable. Log to %APPDATA%/Translator/logs/translator.log in both cases.
     if getattr(sys, "frozen", False) or sys.executable.lower().endswith("pythonw.exe"):
         _setup_frozen_logging()
     parser = build_parser()

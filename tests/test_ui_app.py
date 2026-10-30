@@ -10,8 +10,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from fpst.core.config import AppConfig  # noqa: E402
-from fpst.core.types import Lang, Source, Subtitle  # noqa: E402
+from translator.core.config import AppConfig  # noqa: E402
+from translator.core.types import Lang, Source, Subtitle  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -33,7 +33,7 @@ def cfg_path(tmp_path):
 
 
 def test_controller_loads_config_from_disk(app, cfg_path):
-    from fpst.ui.controller import AppController
+    from translator.ui.controller import AppController
 
     controller = AppController(cfg_path)
     try:
@@ -44,7 +44,7 @@ def test_controller_loads_config_from_disk(app, cfg_path):
 
 
 def test_controller_counts_subtitles(app, cfg_path):
-    from fpst.ui.controller import AppController
+    from translator.ui.controller import AppController
 
     controller = AppController(cfg_path)
     try:
@@ -59,7 +59,7 @@ def test_controller_counts_subtitles(app, cfg_path):
 
 
 def test_snapshot_reports_core_fields(app, cfg_path):
-    from fpst.ui.controller import AppController
+    from translator.ui.controller import AppController
 
     controller = AppController(cfg_path)
     try:
@@ -73,7 +73,7 @@ def test_snapshot_reports_core_fields(app, cfg_path):
 
 
 def test_status_text_distinguishes_states(app, cfg_path):
-    from fpst.ui.controller import AppController, RunState
+    from translator.ui.controller import AppController, RunState
 
     controller = AppController(cfg_path)
     try:
@@ -87,7 +87,7 @@ def test_status_text_distinguishes_states(app, cfg_path):
 
 
 def test_pause_and_resume_are_idempotent(app, cfg_path):
-    from fpst.ui.controller import AppController
+    from translator.ui.controller import AppController
 
     controller = AppController(cfg_path)
     try:
@@ -101,7 +101,7 @@ def test_pause_and_resume_are_idempotent(app, cfg_path):
 
 
 def test_save_config_writes_the_file(app, cfg_path):
-    from fpst.ui.controller import AppController
+    from translator.ui.controller import AppController
 
     controller = AppController(cfg_path)
     try:
@@ -114,7 +114,7 @@ def test_save_config_writes_the_file(app, cfg_path):
 
 def test_start_failure_becomes_an_error_state(app, cfg_path, monkeypatch):
     """A broken engine must surface in the UI, not crash the tray."""
-    from fpst.ui import controller as mod
+    from translator.ui import controller as mod
 
     def boom(*args, **kwargs):
         raise RuntimeError("no screen")
@@ -135,7 +135,7 @@ def test_start_failure_becomes_an_error_state(app, cfg_path, monkeypatch):
 
 
 def test_settings_roundtrip_preserves_config(app, cfg_path):
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     cfg = AppConfig.load(cfg_path)
     window = SettingsWindow()
@@ -151,7 +151,7 @@ def test_settings_roundtrip_preserves_config(app, cfg_path):
 
 
 def test_settings_edits_are_applied(app, cfg_path):
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     window = SettingsWindow()
     try:
@@ -169,7 +169,7 @@ def test_settings_edits_are_applied(app, cfg_path):
 
 def test_settings_cancel_does_not_touch_the_source_config(app, cfg_path):
     """The window edits a copy, so a rejected dialog cannot corrupt anything."""
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     original = AppConfig.load(cfg_path)
     window = SettingsWindow()
@@ -184,7 +184,7 @@ def test_settings_cancel_does_not_touch_the_source_config(app, cfg_path):
 
 
 def test_regions_tab_edits_and_removes(app, cfg_path):
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     cfg = AppConfig.load(cfg_path)
     cfg.screen.regions = [(0.0, 0.6, 0.3, 0.2), (0.7, 0.05, 0.25, 0.2)]
@@ -202,7 +202,7 @@ def test_regions_tab_edits_and_removes(app, cfg_path):
 
 
 def test_status_tab_renders_a_snapshot(app, cfg_path):
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     window = SettingsWindow()
     try:
@@ -226,7 +226,7 @@ def test_status_tab_renders_a_snapshot(app, cfg_path):
 
 
 def test_glossary_edit_replaces_both_dicts(app, cfg_path):
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     window = SettingsWindow()
     try:
@@ -247,7 +247,7 @@ def test_glossary_edit_replaces_both_dicts(app, cfg_path):
 
 
 def test_tray_builds_menu_and_tracks_state(app):
-    from fpst.ui.tray import TrayIcon
+    from translator.ui.tray import TrayIcon
 
     calls = []
     tray = TrayIcon(
@@ -275,7 +275,7 @@ def test_tray_builds_menu_and_tracks_state(app):
 
 
 def test_tray_icon_colours_differ_per_state(app):
-    from fpst.ui.tray import STATE_COLOURS
+    from translator.ui.tray import STATE_COLOURS
 
     assert len({*STATE_COLOURS.values()}) == len(STATE_COLOURS), "each state needs its own colour"
 
@@ -285,7 +285,7 @@ def test_tray_single_click_opens_settings(app):
     it, so clicking the tray icon appeared to do nothing."""
     from PySide6.QtWidgets import QSystemTrayIcon
 
-    from fpst.ui.tray import TrayIcon
+    from translator.ui.tray import TrayIcon
 
     calls = []
     tray = TrayIcon(
@@ -309,7 +309,7 @@ def test_tray_single_click_opens_settings(app):
 
 def test_hidden_window_is_not_offered_as_the_settings_target(app, cfg_path):
     """The settings window must be openable repeatedly, not just once."""
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     window = SettingsWindow()
     try:
@@ -329,8 +329,8 @@ def test_overlay_picks_the_screen_by_origin_not_by_index(app):
     """Regression: the overlay used a raw Qt screen index while capture matched by
     absolute origin (mss and Qt order screens differently), so subtitles could
     appear on one display while OCR read another."""
-    from fpst.ui.overlay import SubtitleOverlay
-    from fpst.ui.screens import screen_origin
+    from translator.ui.overlay import SubtitleOverlay
+    from translator.ui.screens import screen_origin
 
     screens = app.screens()
     if len(screens) < 2:
@@ -347,7 +347,7 @@ def test_overlay_picks_the_screen_by_origin_not_by_index(app):
 
 
 def test_find_screen_falls_back_to_index_when_origin_is_unknown(app):
-    from fpst.ui.screens import find_screen
+    from translator.ui.screens import find_screen
 
     screens = app.screens()
     assert find_screen(None, 0) is screens[0]
@@ -358,7 +358,7 @@ def test_settings_preserve_small_floats_exactly(app, cfg_path):
     """Regression: the spin box had 2 decimals, so min_change_ratio = 0.004 showed
     as 0.00 and every save from the settings window silently disabled the change
     gate -- the single biggest CPU optimisation in the product."""
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     cfg = AppConfig.load(cfg_path)
     cfg.screen.min_change_ratio = 0.004
@@ -373,7 +373,7 @@ def test_settings_preserve_small_floats_exactly(app, cfg_path):
 
 @pytest.mark.parametrize("value", [0.004, 0.012, 0.05])
 def test_small_ratio_survives_the_spinbox(app, cfg_path, value):
-    from fpst.ui.settings_window import SettingsWindow
+    from translator.ui.settings_window import SettingsWindow
 
     cfg = AppConfig.load(cfg_path)
     cfg.screen.min_change_ratio = value
