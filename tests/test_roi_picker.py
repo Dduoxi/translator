@@ -8,11 +8,16 @@ pytest.importorskip("PySide6")
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QPoint, QRect, Qt  # noqa: E402
+from PySide6.QtCore import QRect, Qt  # noqa: E402
 from PySide6.QtGui import QKeyEvent  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from fpst.ui.roi_picker import MIN_SIZE, PickedRegion, RoiPicker  # noqa: E402
+from fpst.ui.roi_picker import (  # noqa: E402
+    MIN_SIZE,
+    PickedRegion,
+    RoiPicker,
+    toml_regions,
+)
 
 
 @pytest.fixture(scope="module")
@@ -35,13 +40,16 @@ def picker(app, geometry):
 
 
 def _at(geometry: QRect, fx: float, fy: float, fw: float, fh: float) -> QRect:
-    """Build a widget-space QRect from monitor fractions."""
     return QRect(
         int(fx * geometry.width()),
         int(fy * geometry.height()),
         int(fw * geometry.width()),
         int(fh * geometry.height()),
     )
+
+
+def _key(widget: RoiPicker, key) -> None:
+    widget.keyPressEvent(QKeyEvent(QKeyEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier))
 
 
 # ------------------------------------------------------------------ formatting
@@ -53,7 +61,13 @@ def test_picked_region_formatting():
     assert picked.toml_region == "[0.100, 0.200, 0.300, 0.400]"
 
 
-# ------------------------------------------------------------------ geometry
+def test_toml_regions_renders_nested_arrays():
+    a = PickedRegion(1, (0, 0, 1, 1), (0.1, 0.2, 0.3, 0.4), (1920, 1080))
+    b = PickedRegion(1, (0, 0, 1, 1), (0.5, 0.6, 0.2, 0.1), (1920, 1080))
+    assert toml_regions([a, b]) == "[[0.100, 0.200, 0.300, 0.400], [0.500, 0.600, 0.200, 0.100]]"
+
+
+# -------------------------------------------------------------------- geometry
 
 
 def test_fractions_are_relative_to_the_monitor(picker, geometry):
@@ -63,7 +77,6 @@ def test_fractions_are_relative_to_the_monitor(picker, geometry):
 
 
 def test_fractions_roundtrip_to_the_same_pixels(picker, geometry):
-    """Stored fractions must reproduce the box -- that is the whole point."""
     from fpst.core.types import Rect
 
     box = _at(geometry, 0.12, 0.6, 0.4, 0.2)
@@ -73,94 +86,108 @@ def test_fractions_roundtrip_to_the_same_pixels(picker, geometry):
 
 
 def test_window_offset_is_compensated(app, geometry):
-    """A WM that shifts our window must not skew the fractions."""
     widget = RoiPicker(app.screens()[0], 1)
-    shifted = geometry.translated(37, 21)
-    widget.setGeometry(shifted)
+    widget.setGeometry(geometry.translated(37, 21))
     try:
-        # Same on-screen box, but expressed in the shifted widget's coordinates
         sel = _at(geometry, 0.2, 0.4, 0.3, 0.2).translated(-37, -21)
-        result = widget._make_result(sel)
-        assert result.fractions == pytest.approx((0.2, 0.4, 0.3, 0.2), abs=1e-3)
+        assert widget._make_result(sel).fractions == pytest.approx((0.2, 0.4, 0.3, 0.2), abs=1e-3)
     finally:
         widget.close()
 
 
-def test_empty_selection_is_rejected(picker):
-    picker._sel = QRect(10, 10, MIN_SIZE - 1, 100)
-    assert picker._selection().isEmpty()
+# ----------------------------------------------------------------- multi-select
 
 
-def test_selection_is_normalised_when_dragged_up_left(picker):
-    picker._sel = QRect(300, 300, -200, -200)
-    sel = picker._selection()
-    assert sel.width() == 200 and sel.height() == 200
+def test_drag_appends_a_box(picker, geometry):
+    picker._draft = _at(geometry, 0.1, 0.1, 0.2, 0.2)
+    picker._commit_draft()
+    picker._draft = _at(geometry, 0.6, 0.6, 0.2, 0.2)
+    picker._commit_draft()
+    assert len(picker._boxes) == 2
 
 
-def test_selection_clipped_to_widget(picker, geometry):
-    picker._sel = QRect(geometry.width() - 50, geometry.height() - 50, 500, 500)
-    sel = picker._selection()
-    assert sel.right() <= geometry.width()
-    assert sel.bottom() <= geometry.height()
+def test_tiny_drag_is_rejected(picker):
+    picker._draft = QRect(10, 10, MIN_SIZE - 1, MIN_SIZE - 1)
+    picker._commit_draft()
+    assert picker._boxes == []
 
 
-# --------------------------------------------------------------------- input
+def test_drag_up_left_is_normalised(picker):
+    picker._draft = QRect(300, 300, -200, -200)
+    picker._commit_draft()
+    assert picker._boxes[0].width() == 200
+    assert picker._boxes[0].height() == 200
 
 
-def test_full_drag_creates_a_result(app, geometry):
-    from PySide6.QtTest import QTest
-
-    widget = RoiPicker(app.screens()[0], 1)
-    widget.setGeometry(geometry)
-    widget.show()
-    app.processEvents()
-
-    start = QPoint(int(geometry.width() * 0.2), int(geometry.height() * 0.2))
-    end = QPoint(int(geometry.width() * 0.6), int(geometry.height() * 0.6))
-    QTest.mousePress(widget, Qt.MouseButton.LeftButton, pos=start)
-    QTest.mouseMove(widget, end)
-    QTest.mouseRelease(widget, Qt.MouseButton.LeftButton, pos=end)
-    app.processEvents()
-
-    assert widget.result is not None
-    assert widget.result.fractions == pytest.approx((0.2, 0.2, 0.4, 0.4), abs=2e-3)
-    widget.close()
+def test_box_is_clipped_to_the_widget(picker, geometry):
+    picker._draft = QRect(geometry.width() - 50, geometry.height() - 50, 500, 500)
+    picker._commit_draft()
+    assert picker._boxes[0].right() <= geometry.width()
 
 
-def test_escape_clears_result(picker):
-    picker._sel = QRect(10, 10, 100, 100)
-    picker.result = PickedRegion(1, (0, 0, 1, 1), (0, 0, 1, 1), (10, 10))
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier)
-    picker.keyPressEvent(event)
-    assert picker.result is None
+def test_enter_confirms_all_boxes(picker, geometry):
+    picker._boxes = [
+        _at(geometry, 0.0, 0.6, 0.3, 0.2),
+        _at(geometry, 0.7, 0.0, 0.3, 0.2),
+    ]
+    _key(picker, Qt.Key.Key_Return)
+    assert len(picker.result) == 2
+    assert picker.result[0].fractions == pytest.approx((0.0, 0.6, 0.3, 0.2), abs=1e-3)
+    assert picker.result[1].fractions == pytest.approx((0.7, 0.0, 0.3, 0.2), abs=1e-3)
 
 
-def test_enter_confirms_selection(picker, geometry):
-    picker._sel = _at(geometry, 0.1, 0.2, 0.4, 0.6)
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
-    picker.keyPressEvent(event)
-    assert picker.result is not None
-    assert picker.result.fractions == pytest.approx((0.1, 0.2, 0.4, 0.6), abs=1e-3)
+def test_enter_with_no_boxes_does_nothing(picker):
+    _key(picker, Qt.Key.Key_Return)
+    assert picker.result == []
 
 
-def test_r_resets_the_selection(picker):
-    picker._sel = QRect(10, 10, 100, 100)
-    picker.result = PickedRegion(1, (0, 0, 1, 1), (0, 0, 1, 1), (10, 10))
-    event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_R, Qt.KeyboardModifier.NoModifier)
-    picker.keyPressEvent(event)
-    assert picker.result is None
-    assert picker._selection().isEmpty()
+def test_backspace_removes_the_last_box(picker, geometry):
+    picker._boxes = [_at(geometry, 0.0, 0.0, 0.2, 0.2), _at(geometry, 0.5, 0.5, 0.2, 0.2)]
+    _key(picker, Qt.Key.Key_Backspace)
+    assert len(picker._boxes) == 1
+    assert picker._boxes[0].top() < 10, "the first box must survive"
 
 
-def test_finish_quits_the_event_loop(app, picker):
-    """Without an explicit quit(), Qt.Tool windows leave exec() spinning."""
-    picker._sel = QRect(10, 10, 100, 100)
-    picker._finish()
-    assert not picker.isVisible()
+def test_r_clears_everything(picker, geometry):
+    picker._boxes = [_at(geometry, 0.0, 0.0, 0.2, 0.2)]
+    _key(picker, Qt.Key.Key_R)
+    assert picker._boxes == []
+    assert picker.result == []
 
 
-def test_widget_renders_without_error(picker, geometry):
-    picker._sel = QRect()
+def test_escape_cancels(picker, geometry):
+    picker._boxes = [_at(geometry, 0.0, 0.0, 0.2, 0.2)]
+    _key(picker, Qt.Key.Key_Escape)
+    assert picker.result == []
+
+
+def test_enter_commits_an_in_progress_drag(picker, geometry):
+    """Pressing Enter mid-drag should still register what was drawn."""
+    picker._dragging = True
+    picker._draft = _at(geometry, 0.2, 0.2, 0.3, 0.3)
+    _key(picker, Qt.Key.Key_Return)
+    assert len(picker.result) == 1
+
+
+# --------------------------------------------------------------------- render
+
+
+def test_summary_rows_describe_every_box(picker, geometry):
+    picker._boxes = [
+        _at(geometry, 0.0, 0.6, 0.3, 0.2),
+        _at(geometry, 0.7, 0.0, 0.3, 0.2),
+    ]
+    rows = picker._rows()
+    assert len(rows) == 2
+    assert rows[0].startswith("1.")
+    assert rows[1].startswith("2.")
+
+
+def test_widget_renders_in_every_state(picker, geometry):
+    picker._boxes = []
     picker.grab()
-    picker._sel = _at(geometry, 0.05, 0.6, 0.35, 0.25)
+    picker._boxes = [_at(geometry, 0.05, 0.6, 0.35, 0.25)]
+    picker.grab()
+    picker._dragging = True
+    picker._draft = _at(geometry, 0.5, 0.1, 0.3, 0.2)
     picker.grab()

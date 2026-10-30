@@ -68,3 +68,36 @@ def test_default_config_roundtrips():
         out = AppConfig().save(Path(tmp) / "config.toml")
         back = AppConfig.load(out)
     assert back.translate.glossary == AppConfig().translate.glossary
+
+
+def test_none_fields_are_omitted_not_stringified(tmp_path):
+    """Regression: TOML has no null, so None was written as the string "None"
+    and read back as a truthy string instead of None."""
+    cfg = AppConfig()
+    cfg.screen.region = None
+    out = cfg.save(tmp_path / "config.toml")
+    text = out.read_text(encoding="utf-8")
+
+    assert '"None"' not in text
+    assert "region = " not in text.split("[screen]")[1].split("[")[0]
+    assert AppConfig.load(out).screen.region is None
+
+
+def test_multiple_regions_roundtrip(tmp_path):
+    cfg = AppConfig()
+    cfg.screen.regions = [(0.0, 0.6, 0.35, 0.25), (0.62, 0.08, 0.34, 0.28)]
+    out = cfg.save(tmp_path / "config.toml")
+    back = AppConfig.load(out)
+    assert back.screen.regions == [(0.0, 0.6, 0.35, 0.25), (0.62, 0.08, 0.34, 0.28)]
+    assert all(isinstance(v, float) for v in back.screen.regions[0])
+
+
+def test_resolved_regions_prefers_the_list_then_the_single_then_full_screen():
+    cfg = AppConfig()
+    assert cfg.screen.resolved_regions() == [None]
+
+    cfg.screen.region = (0.1, 0.2, 0.3, 0.4)
+    assert cfg.screen.resolved_regions() == [(0.1, 0.2, 0.3, 0.4)]
+
+    cfg.screen.regions = [(0.0, 0.0, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5)]
+    assert len(cfg.screen.resolved_regions()) == 2

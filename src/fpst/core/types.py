@@ -128,6 +128,8 @@ class Subtitle:
     ts: float = field(default_factory=time.time)
     subtitle_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     speaker: str | None = None
+    region: int = 0
+    """Which ROI this came from, so the overlay can anchor it to that region."""
     latency_ms: float = 0.0
     """End-to-end time from capture/audio-callback to translated text."""
     confidence: float = 1.0

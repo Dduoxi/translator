@@ -57,6 +57,7 @@ class _Line:
     color: QColor
     born: float  # time.monotonic()
     latency_ms: float
+    region: int = 0
 
 
 def _exclude_from_capture(window: QWidget) -> str:
@@ -84,6 +85,7 @@ class SubtitleOverlay(QWidget):
         cfg: UIConfig,
         monitor: int = 1,
         roi: tuple[float, float, float, float] | None = None,
+        rois: list[tuple[float, float, float, float] | None] | None = None,
     ) -> None:
         super().__init__(
             None,
@@ -94,8 +96,10 @@ class SubtitleOverlay(QWidget):
             | Qt.WindowType.WindowDoesNotAcceptFocus,
         )
         self._cfg = cfg
-        self._roi_rel = roi
-        """Scanned region as monitor fractions, so roi-* anchors can track it."""
+        if rois is None:
+            rois = [roi]
+        self._rois_rel = rois
+        """Scanned regions as monitor fractions; a subtitle anchors to its own."""
         self._lines: list[_Line] = []
         self._ttl = max(1.0, cfg.line_ttl)
         self._fade = min(1.5, self._ttl / 2)
@@ -163,6 +167,7 @@ class SubtitleOverlay(QWidget):
                 color=color,
                 born=time.monotonic(),
                 latency_ms=subtitle.latency_ms,
+                region=subtitle.region,
             )
         )
         if len(self._lines) > self._cfg.max_lines * 3:
@@ -223,34 +228,48 @@ class SubtitleOverlay(QWidget):
         wrap_width = max(120, int(self.width() * self._cfg.max_width_ratio))
         gap = max(2, metrics.height() // 3)
 
-        blocks: list[tuple[_Line, float, int, int]] = []  # line, alpha, w, h
+        # One stack per region: chat subtitles sit under the chat box, kill-feed
+        # subtitles under the kill feed.
+        groups: dict[int, list[tuple[_Line, float]]] = {}
         for line, age in alive:
-            rect = metrics.boundingRect(
-                QRect(0, 0, wrap_width, 10_000),
-                Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
-                self._render_text(line),
-            )
-            blocks.append((line, self._alpha(age), rect.width(), rect.height()))
+            groups.setdefault(line.region, []).append((line, age))
 
-        total_h = sum(h for _, _, _, h in blocks) + gap * (len(blocks) - 1)
-        left, top, centered_x = self._anchor_box(total_h)
-        y = top
+        for region in sorted(groups):
+            entries = groups[region][-self._cfg.max_lines :]
+            blocks: list[tuple[_Line, float, int, int]] = []
+            for line, age in entries:
+                rect = metrics.boundingRect(
+                    QRect(0, 0, wrap_width, 10_000),
+                    Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
+                    self._render_text(line),
+                )
+                blocks.append((line, self._alpha(age), rect.width(), rect.height()))
+            if not blocks:
+                continue
 
-        for line, alpha, width, height in blocks:
-            x = left + (wrap_width - width) // 2 if centered_x else left
-            drift = self._slide_offset(now - line.born)
-            self._draw_block(painter, line, alpha, x, y + drift, width, height, wrap_width)
-            y += height + gap
+            total_h = sum(h for _, _, _, h in blocks) + gap * (len(blocks) - 1)
+            left, top, centered_x = self._anchor_box(total_h, region)
+            y = top
+            for line, alpha, width, height in blocks:
+                x = left + (wrap_width - width) // 2 if centered_x else left
+                drift = self._slide_offset(now - line.born)
+                self._draw_block(painter, line, alpha, x, y + drift, width, height, wrap_width)
+                y += height + gap
 
     def _render_text(self, line: _Line) -> str:
         if self._cfg.show_source_text and line.source_text:
             return f"{line.text}\n{line.source_text}"
         return line.text
 
-    def _roi_pixels(self) -> QRect | None:
-        if self._roi_rel is None:
+    def _roi_pixels(self, region: int = 0) -> QRect | None:
+        """Pixel rect of the ROI a subtitle came from."""
+        if not self._rois_rel:
             return None
-        fx, fy, fw, fh = self._roi_rel
+        index = region if 0 <= region < len(self._rois_rel) else 0
+        rel = self._rois_rel[index]
+        if rel is None:
+            return None
+        fx, fy, fw, fh = rel
         return QRect(
             int(fx * self.width()),
             int(fy * self.height()),
@@ -258,14 +277,14 @@ class SubtitleOverlay(QWidget):
             int(fh * self.height()),
         )
 
-    def _anchor_box(self, total_h: int) -> tuple[int, int, bool]:
-        """Return (left, top, horizontally_centred) for the block stack."""
+    def _anchor_box(self, total_h: int, region: int = 0) -> tuple[int, int, bool]:
+        """Return (left, top, horizontally_centred) for one region's stack."""
         anchor = self._cfg.anchor.lower()
         margin = self._cfg.margin_px
         wrap_width = int(self.width() * self._cfg.max_width_ratio)
 
         if anchor.startswith("roi"):
-            roi = self._roi_pixels()
+            roi = self._roi_pixels(region)
             if roi is not None:
                 centred_left = roi.center().x() - wrap_width // 2
                 if "below" in anchor:

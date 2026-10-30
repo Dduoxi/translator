@@ -32,7 +32,7 @@ from ..core.bus import EventBus
 from ..core.config import AppConfig
 from ..core.dedupe import RecentTexts
 from ..core.interfaces import OCREngine, ScreenSource, Translator
-from ..core.latest import LatestValue
+from ..core.latest import LatestPerKey
 from ..core.types import Frame, Lang, Source, Subtitle
 
 log = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class PipelineStats:
 class ScreenPipeline:
     def __init__(
         self,
-        source: ScreenSource,
+        source: ScreenSource | list[ScreenSource],
         ocr: OCREngine,
         translator: Translator,
         bus: EventBus,
@@ -93,7 +93,11 @@ class ScreenPipeline:
         idle_timeout: float = 0.0,
         settle_s: float = 0.0,
     ) -> None:
-        self._source = source
+        self._sources: list[ScreenSource] = (
+            [source] if isinstance(source, ScreenSource) else list(source)
+        )
+        if not self._sources:
+            raise ValueError("at least one screen source is required")
         self._ocr = ocr
         self._translator = translator
         self._bus = bus
@@ -115,23 +119,25 @@ class ScreenPipeline:
         # Never let a continuously-animating screen starve OCR entirely.
         self._settle_cap = max(self._settle * 4, self._settle + 1.0)
         self._dedupe = RecentTexts(ttl=dedupe_ttl)
-        self._mailbox: LatestValue[Frame] = LatestValue()
+        # One pending slot *per region*: with several ROIs a single slot would let
+        # one region's frame overwrite another's, silently losing a translation.
+        self._mailbox: LatestPerKey[int, Frame] = LatestPerKey()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         # Translation runs on its own thread with its own capacity-1 mailbox.
         # A slow LLM (measured 0.8-28 s for the same prompt) must never block
         # OCR, or one sluggish request would freeze the subtitle feed entirely.
-        self._translate_mailbox: LatestValue[list] = LatestValue()
+        self._translate_mailbox: LatestPerKey[int, list] = LatestPerKey()
         self.stats = PipelineStats()
 
     @classmethod
     def from_config(cls, cfg: AppConfig, bus: EventBus) -> ScreenPipeline:
-        from ..capture import make_screen_source
+        from ..capture import make_screen_sources
         from ..ocr import make_ocr_engine
         from ..translate import make_translator
 
         return cls(
-            make_screen_source(cfg.screen),
+            make_screen_sources(cfg.screen),
             make_ocr_engine(cfg.ocr),
             make_translator(cfg.translate),
             bus,
@@ -186,43 +192,52 @@ class ScreenPipeline:
 
     # ---------------------------------------------------------------- capture
     def _capture_loop(self) -> None:
+        opened: list[ScreenSource] = []
         try:
-            self._source.open()  # same thread as grab/close: DXGI requires it
+            for source in self._sources:
+                source.open()  # same thread as grab/close: DXGI requires it
+                opened.append(source)
         except Exception:  # noqa: BLE001
             log.exception("failed to open screen source")
+            for source in opened:
+                with contextlib.suppress(Exception):
+                    source.close()
             self._stop.set()
             return
 
         next_at = time.monotonic()
-        pending: Frame | None = None
-        last_change_at = 0.0
-        first_change_at = 0.0
+        self._pending: dict[int, Frame] = {}
+        self._last_change_at: dict[int, float] = {}
+        self._first_change_at: dict[int, float] = {}
         try:
             while not self._stop.is_set():
-                try:
-                    frame = self._source.grab()
-                except Exception:  # noqa: BLE001
-                    self.stats.errors += 1
-                    log.exception("grab failed")
-                    frame = None
                 now = time.monotonic()
-                if frame is not None:
-                    self.stats.frames_grabbed += 1
-                    self.stats.frames_changed += 1
-                    self._last_change = now
-                    if pending is None:
-                        first_change_at = now
-                    pending = frame
-                    last_change_at = now
+                for index, source in enumerate(self._sources):
+                    try:
+                        frame = source.grab()
+                    except Exception:  # noqa: BLE001
+                        self.stats.errors += 1
+                        log.exception("grab failed for region %d", index)
+                        continue
 
-                if pending is not None:
-                    # Debounce: release the frame only once the ROI holds still,
-                    # so we OCR finished text instead of a fade-in animation.
-                    stable_for = now - last_change_at
-                    starved = now - first_change_at >= self._settle_cap
-                    if stable_for >= self._settle or starved:
-                        self._mailbox.put(pending)
-                        pending = None
+                    if frame is not None:
+                        self.stats.frames_grabbed += 1
+                        self.stats.frames_changed += 1
+                        self._last_change = now
+                        self._pending[index] = frame
+                        self._last_change_at[index] = now
+                        self._first_change_at.setdefault(index, now)
+
+                # Debounce per region: only release once *that* ROI holds still,
+                # so we OCR finished text instead of a fade-in animation.
+                for index in list(self._pending):
+                    last = self._last_change_at.get(index, now)
+                    first = self._first_change_at.get(index, now)
+                    starved = now - first >= self._settle_cap
+                    if now - last >= self._settle or starved:
+                        self._mailbox.put(index, self._pending.pop(index))
+                        self._last_change_at.pop(index, None)
+                        self._first_change_at.pop(index, None)
 
                 # Idle back-off: nothing has changed for a while, so there is
                 # nothing to find -- poll at 1 Hz instead of max_fps.
@@ -242,8 +257,9 @@ class ScreenPipeline:
                 else:
                     next_at = time.monotonic()  # we fell behind; don't sprint to catch up
         finally:
-            with contextlib.suppress(Exception):
-                self._source.close()
+            for source in opened:
+                with contextlib.suppress(Exception):
+                    source.close()
 
     # ----------------------------------------------------------------- worker
     def _worker_loop(self) -> None:
@@ -271,7 +287,7 @@ class ScreenPipeline:
 
             last_run = time.monotonic()
             try:
-                self._process(got[1])
+                self._process(got[0], got[1])
             except Exception:  # noqa: BLE001
                 self.stats.errors += 1
                 log.exception("OCR/translate failed")
@@ -281,11 +297,11 @@ class ScreenPipeline:
             got = self._translate_mailbox.get(timeout=0.2)
             if got is None:
                 continue
-            _seq, (regions, frame_ts) = got
+            region_index, items = got
             started = time.perf_counter()
             try:
                 translated = self._translator.translate(
-                    [r.text for r in regions], self._src_lang, self._dst_lang
+                    [region.text for region, _ in items], self._src_lang, self._dst_lang
                 )
             except Exception:  # noqa: BLE001
                 self.stats.errors += 1
@@ -294,7 +310,7 @@ class ScreenPipeline:
             elapsed = (time.perf_counter() - started) * 1000
             self.stats._tr_ms.append(elapsed)
 
-            for region, dst in zip(regions, translated, strict=False):
+            for (region, frame_ts), dst in zip(items, translated, strict=False):
                 if not dst:
                     continue  # model said "nothing to show"
                 self._bus.publish(
@@ -305,11 +321,12 @@ class ScreenPipeline:
                         src_lang=region.lang,
                         ts=region.ts,
                         confidence=region.confidence,
+                        region=region_index,
                         latency_ms=(time.time() - frame_ts) * 1000 + elapsed,
                     )
                 )
 
-    def _process(self, frame: Frame) -> None:
+    def _process(self, region_index: int, frame: Frame) -> None:
         started = time.perf_counter()
         regions = self._ocr.recognize(frame)
         self.stats.ocr_runs += 1
@@ -332,8 +349,10 @@ class ScreenPipeline:
             return
 
         # Hand off. The translation thread owns the network call so a slow
-        # request can never stall OCR.
-        self._translate_mailbox.put((fresh, frame.ts))
+        # request can never stall OCR. Batches are *merged per region*: a plain
+        # latest-wins slot would drop a region's lines when two ROIs change at
+        # the same moment.
+        self._translate_mailbox.extend(region_index, [(region, frame.ts) for region in fresh])
 
 
 def _lang(value: str) -> Lang:

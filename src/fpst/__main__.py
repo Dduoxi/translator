@@ -8,6 +8,7 @@ fpst watch    # run the always-on scan loop, printing translations
 fpst bench    # measure what this will actually cost your game
 fpst auth     # store / inspect / remove the translation API key
 fpst run      # the actual product: overlay subtitles on screen (--demo to try it)
+fpst setup    # re-run the first-run wizard (key + regions)
 """
 
 from __future__ import annotations
@@ -146,65 +147,72 @@ def validate_api_key_hint(cfg, key: str, do_verify: bool) -> tuple[bool, str]:
 
 
 def cmd_roi(args: argparse.Namespace) -> int:
-    """Pick the ROI with the mouse, optionally verify it and save it."""
-    from .capture import make_screen_source
+    """Pick one or more ROIs with the mouse, optionally verify and save them."""
+    from .capture import make_screen_sources
     from .ocr import make_ocr_engine, postprocess
-    from .ui.roi_picker import pick_region
+    from .ui.roi_picker import pick_regions, toml_regions
 
     load_builtin_engines()
     cfg = AppConfig.load(args.config)
 
-    picked = pick_region(monitor=args.monitor)
-    if picked is None:
+    picked = pick_regions(monitor=args.monitor)
+    if not picked:
         print("cancelled")
         return 1
 
-    print(f"monitor {picked.monitor}  {picked.monitor_size[0]}x{picked.monitor_size[1]} px")
-    print(
-        f"pixels : {picked.rect_px[0]} {picked.rect_px[1]} {picked.rect_px[2]} {picked.rect_px[3]}"
-    )
+    monitor = picked[0].monitor
+    mw, mh = picked[0].monitor_size
+    print(f"monitor {monitor}  {mw}x{mh} px  ·  {len(picked)} region(s)")
+    for i, region in enumerate(picked, start=1):
+        px = region.rect_px
+        print(f"  {i}. pixels {px[0]},{px[1]} {px[2]}x{px[3]}")
     print()
     print("paste into config.toml:")
     print("  [screen]")
-    print(f"  monitor = {picked.monitor}")
-    print(f"  region = {picked.toml_region}")
+    print(f"  monitor = {monitor}")
+    print(f"  regions = {toml_regions(picked)}")
     print()
     print("or use right now:")
-    print(f"  fpst watch --region {picked.cli_region}")
+    print(f"  fpst run --region {picked[0].cli_region}   (first region only)")
 
     if args.verify:
         print()
-        print("verifying (one OCR pass on the selection)...")
-        cfg.screen.monitor = picked.monitor
-        cfg.screen.region = picked.fractions
+        print(f"verifying {len(picked)} region(s)...")
+        cfg.screen.monitor = monitor
+        cfg.screen.regions = [r.fractions for r in picked]
+        cfg.screen.region = None
         cfg.screen.min_change_ratio = 0
-        source = make_screen_source(cfg.screen)
-        try:
-            source.open()
-            frame = source.grab()
-        finally:
-            source.close()
-        if frame is None:
-            print("  no frame captured")
-            return 1
+        sources = make_screen_sources(cfg.screen)
         engine = make_ocr_engine(cfg.ocr)
         engine.warmup()
         try:
-            started = time.perf_counter()
-            regions = engine.recognize(frame)
-            elapsed = (time.perf_counter() - started) * 1000
+            for i, source in enumerate(sources, start=1):
+                source.open()
+                try:
+                    frame = source.grab()
+                finally:
+                    source.close()
+                if frame is None:
+                    print(f"  region {i}: no frame captured")
+                    continue
+                started = time.perf_counter()
+                regions = engine.recognize(frame)
+                elapsed = (time.perf_counter() - started) * 1000
+                lines = postprocess(regions, merge=cfg.ocr.merge_lines)
+                print(
+                    f"  region {i}: {len(regions)} boxes -> {len(lines)} lines in {elapsed:.0f} ms"
+                )
+                if not lines:
+                    print("             nothing recognised -- box may be empty")
+                for line in lines[: cfg.ocr.max_lines]:
+                    print(f"             [{line.confidence:.2f}] {line.text}")
         finally:
             engine.close()
-        lines = postprocess(regions, merge=cfg.ocr.merge_lines)
-        print(f"  {len(regions)} boxes -> {len(lines)} lines in {elapsed:.0f} ms")
-        if not lines:
-            print("  nothing recognised -- the box may be empty or too small")
-        for line in lines[: cfg.ocr.max_lines]:
-            print(f"  [{line.confidence:.2f}] {line.text}")
 
     if args.write:
-        cfg.screen.monitor = picked.monitor
-        cfg.screen.region = picked.fractions
+        cfg.screen.monitor = monitor
+        cfg.screen.regions = [r.fractions for r in picked]
+        cfg.screen.region = None
         path = cfg.save(args.config)
         print()
         print(f"written to {path}")
@@ -323,15 +331,29 @@ def cmd_run(args: argparse.Namespace) -> int:
         cfg.screen.region = tuple(float(v) for v in args.region)
 
     if not args.demo:
-        try:
-            ensure_api_key(
-                cfg.translate,
+        from .runtime.setup import run_setup
+
+        if not args.skip_setup:
+            print("首次启动检查:")
+            result = run_setup(
+                cfg,
                 interactive=not args.no_prompt,
-                reason="首次使用需要配置翻译密钥。",
+                config_path=args.config,
             )
-        except MissingApiKey as exc:
-            print(f"无法启动：{exc}", file=sys.stderr)
-            return 2
+            if not result:
+                print(f"无法启动：{result.message}", file=sys.stderr)
+                return 2
+        else:
+            try:
+                ensure_api_key(
+                    cfg.translate,
+                    interactive=not args.no_prompt,
+                    reason="首次使用需要配置翻译密钥。",
+                )
+            except MissingApiKey as exc:
+                print(f"无法启动：{exc}", file=sys.stderr)
+                return 2
+        print()
         for note in apply_resource_policy(
             low_priority=cfg.performance.low_priority,
             cpu_reserve=cfg.performance.cpu_reserve,
@@ -397,6 +419,21 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"\n{pipeline.stats.summary()}")
         controller.close()
     return int(code)
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Re-run the first-run wizard at any time."""
+    from .runtime.setup import run_setup
+
+    cfg = AppConfig.load(args.config)
+    print("配置向导:")
+    result = run_setup(cfg, interactive=True, config_path=args.config)
+    if not result:
+        print(f"未完成：{result.message}", file=sys.stderr)
+        return 1
+    print()
+    print("完成。现在可以直接运行：fpst run")
+    return 0
 
 
 def cmd_bench(args: argparse.Namespace) -> int:
@@ -592,7 +629,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("--demo", action="store_true", help="show sample subtitles, no capture")
     p_run.add_argument("--no-prompt", action="store_true", help="never ask for a key")
+    p_run.add_argument(
+        "--skip-setup", action="store_true", help="skip the region wizard, use config as-is"
+    )
     p_run.set_defaults(func=cmd_run)
+
+    p_setup = sub.add_parser("setup", help="first-run wizard: key + regions")
+    p_setup.add_argument("--config", default=None, help="config file to create/update")
+    p_setup.set_defaults(func=cmd_setup)
 
     p_auth = sub.add_parser("auth", help="store / inspect / remove the API key")
     p_auth.add_argument("action", nargs="?", choices=["status", "set", "clear"], default="status")

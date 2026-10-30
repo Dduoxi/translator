@@ -244,3 +244,47 @@ def test_slide_offset_decays_during_fade_in(app):
         assert widget._slide_offset(5.0) == 0
     finally:
         widget.close()
+
+
+def test_each_region_anchors_to_its_own_roi(app):
+    """Chat and kill feed sit in different corners; each stack must follow its own."""
+    cfg = _cfg(anchor="roi-below", max_lines=2)
+    rois = [(0.02, 0.55, 0.30, 0.20), (0.66, 0.04, 0.30, 0.20)]
+    widget = SubtitleOverlay(cfg, monitor=1, rois=rois)
+    widget.setGeometry(0, 0, 1000, 800)
+    try:
+        bottom = widget._roi_pixels(0)
+        top = widget._roi_pixels(1)
+        assert 400 < bottom.top() < 600, "region 0 should be lower on screen"
+        assert top.top() < 100, "region 1 should be near the top"
+
+        _l0, top0, _c0 = widget._anchor_box(40, region=0)
+        _l1, top1, _c1 = widget._anchor_box(40, region=1)
+        assert top0 == bottom.bottom() + cfg.roi_gap_px
+        assert top1 == top.bottom() + cfg.roi_gap_px
+        assert top0 > top1
+    finally:
+        widget.close()
+
+
+def test_subtitle_region_index_selects_the_anchor(app):
+    cfg = _cfg(anchor="roi-below", max_lines=2)
+    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.0, 0.7, 0.3, 0.2), (0.7, 0.0, 0.3, 0.2)])
+    widget.setGeometry(0, 0, 1000, 800)
+    try:
+        widget.add_subtitle(Subtitle("s", "底部", Source.SCREEN, Lang.EN, region=0))
+        widget.add_subtitle(Subtitle("s", "顶部", Source.VOICE, Lang.EN, region=1))
+        assert [line.region for line in widget._lines] == [0, 1]
+        widget.grab()  # must paint two separate stacks without raising
+    finally:
+        widget.close()
+
+
+def test_unknown_region_index_falls_back_to_the_first_roi(app):
+    cfg = _cfg(anchor="roi-below")
+    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.1, 0.5, 0.3, 0.2)])
+    widget.setGeometry(0, 0, 1000, 800)
+    try:
+        assert widget._roi_pixels(99) == widget._roi_pixels(0)
+    finally:
+        widget.close()

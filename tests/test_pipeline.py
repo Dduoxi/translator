@@ -435,3 +435,100 @@ def test_translation_runs_on_its_own_thread():
     finally:
         pipeline.stop()
     assert seen["name"] == "fpst-translate"
+
+
+# ------------------------------------------------------------- multiple ROIs
+
+
+def test_multiple_sources_each_produce_subtitles_with_their_region_index():
+    """Chat bottom-left + kill feed top-right: both must reach the overlay, and
+    each subtitle must remember which ROI it came from so it can be anchored."""
+    image = np.zeros((60, 200, 3), np.uint8)
+    bus = EventBus()
+    got: list[Subtitle] = []
+    bus.subscribe(Subtitle, got.append)
+
+    class RegionOCR(MockOCREngine):
+        """Reads different text depending on which region it was handed."""
+
+        def __init__(self):
+            super().__init__(lines=["x"])
+            self.seen: list[int] = []
+
+        def recognize(self, frame):
+            idx = 0 if frame.image.shape[1] == 200 else 1
+            self.seen.append(idx)
+            self.calls += 1
+            return MockOCREngine(lines=[f"region{idx} line"]).recognize(frame)
+
+    pipeline = ScreenPipeline(
+        [ReplaySource([image]), ReplaySource([np.zeros((60, 100, 3), np.uint8)])],
+        RegionOCR(),
+        MockTranslator(),
+        bus,
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: len(got) >= 2, timeout=5.0)
+    finally:
+        pipeline.stop()
+
+    by_region = {s.region for s in got}
+    assert by_region == {0, 1}, f"expected both regions, got {by_region}"
+    assert {s.src_text for s in got} == {"region0 line", "region1 line"}
+
+
+def test_simultaneous_changes_in_two_regions_are_both_processed():
+    """Regression: a single-slot mailbox would let one region overwrite the other."""
+    from fpst.core.latest import LatestPerKey
+
+    box: LatestPerKey[int, str] = LatestPerKey()
+    box.put(0, "chat")
+    box.put(1, "killfeed")
+    picked = {box.get(timeout=0.01), box.get(timeout=0.01)}
+    assert picked == {(0, "chat"), (1, "killfeed")}
+
+
+def test_one_region_changing_does_not_reprocess_another():
+    """Each ROI has its own change gate, so a busy kill feed must not re-OCR chat."""
+    quiet = np.zeros((40, 100, 3), np.uint8)
+    busy = np.zeros((40, 100, 3), np.uint8)
+
+    class CountingOCR(MockOCREngine):
+        def recognize(self, frame):
+            # The quiet region always yields identical pixels; the busy one ticks.
+            if frame.image[0, 0, 0] == 0:
+                self.calls += 1
+                return MockOCREngine(lines=["quiet"]).recognize(frame)
+            self.calls += 1
+            return MockOCREngine(lines=[f"busy{frame.image[0, 0, 0]}"]).recognize(frame)
+
+    class TickingSource(ReplaySource):
+        def grab(self):
+            self._i += 1
+            img = busy.copy()
+            img[0, 0, 0] = self._i % 250
+            return Frame(image=img)
+
+    ocr = CountingOCR()
+    pipeline = ScreenPipeline(
+        [
+            ChangedOnly(ReplaySource([quiet]), min_change_ratio=0.001),
+            ChangedOnly(TickingSource([quiet]), min_change_ratio=0.001),
+        ],
+        ocr,
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        time.sleep(0.6)
+    finally:
+        pipeline.stop()
+    # The quiet region's gate must have suppressed repeats: total OCR runs stay
+    # modest instead of doubling per tick.
+    assert ocr.calls <= 8, f"quiet region was re-OCR'd too often ({ocr.calls} runs)"

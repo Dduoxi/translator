@@ -1,6 +1,13 @@
 """Screen capture sources.
 
-``make_screen_source`` picks a platform default and wraps it in the change gate.
+``make_screen_sources`` builds one source per configured ROI, each wrapped in its
+own change gate.
+
+Why one source per ROI rather than one big capture: the ROIs may be in opposite
+corners (chat bottom-left, kill feed top-right), so their union can be the whole
+screen. Grabbing each small rect separately is proportional to the *total scanned
+area* instead of the bounding box, and it keeps the per-region change gate
+simple -- a twitch in the kill feed no longer re-OCRs the chat box.
 """
 
 from __future__ import annotations
@@ -12,27 +19,36 @@ from ..core.interfaces import ScreenSource
 from ..core.registry import RegistryError, available, create
 from .gate import ChangedOnly
 
-__all__ = ["make_screen_source", "ChangedOnly"]
+__all__ = ["make_screen_sources", "make_screen_source", "ChangedOnly", "describe"]
 
 PLATFORM_DEFAULT = "dxgi" if sys.platform == "win32" else "mss"
 
 
-def make_screen_source(cfg: ScreenConfig) -> ScreenSource:
+def _build_one(cfg: ScreenConfig, region: tuple[float, float, float, float] | None) -> ScreenSource:
     name = cfg.engine
     if name == "auto":
         name = PLATFORM_DEFAULT
-
     try:
-        source = create(ScreenSource, name, monitor=cfg.monitor, region=cfg.region)
+        source = create(ScreenSource, name, monitor=cfg.monitor, region=region)
     except RegistryError:
         if name == PLATFORM_DEFAULT:
             raise
         # Configured engine is not installed / not supported here -> fall back.
-        source = create(ScreenSource, "mss", monitor=cfg.monitor, region=cfg.region)
+        source = create(ScreenSource, "mss", monitor=cfg.monitor, region=region)
 
     if cfg.min_change_ratio > 0:
         source = ChangedOnly(source, min_change_ratio=cfg.min_change_ratio)
     return source
+
+
+def make_screen_sources(cfg: ScreenConfig) -> list[ScreenSource]:
+    """One gated source per ROI, in configured order."""
+    return [_build_one(cfg, region) for region in cfg.resolved_regions()]
+
+
+def make_screen_source(cfg: ScreenConfig) -> ScreenSource:
+    """Single-source convenience wrapper (first ROI only)."""
+    return make_screen_sources(cfg)[0]
 
 
 def describe() -> str:

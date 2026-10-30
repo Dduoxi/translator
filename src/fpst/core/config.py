@@ -109,7 +109,15 @@ class ScreenConfig:
     monitor: int = 1
     """1-based monitor index, matching what Windows' display settings show."""
     region: tuple[float, float, float, float] | None = None
-    """ROI as fractions of the monitor: (x, y, w, h). None = full monitor."""
+    """Single ROI as monitor fractions (x, y, w, h). Legacy; prefer ``regions``."""
+    regions: list[tuple[float, float, float, float]] = field(default_factory=list)
+    """One or more ROIs to scan, as monitor fractions.
+
+    A game often puts chat in one corner and the kill feed in another, so
+    several regions are normal. Each region costs its own OCR pass -- see the
+    budget table in the README before adding many.
+    Empty means "the whole monitor".
+    """
     max_fps: float = 2.0
     """Capture poll rate. Chat is not a live feed -- messages arrive every few
     seconds at best -- so 2 Hz bounds detection latency at 500 ms, which is
@@ -126,6 +134,17 @@ class ScreenConfig:
     Set to 0 to OCR the first changed frame immediately."""
     min_change_ratio: float = 0.004
     """Fraction of changed pixels needed to bother running OCR."""
+
+    def resolved_regions(self) -> list[tuple[float, float, float, float] | None]:
+        """The regions to scan, with legacy ``region`` folded in.
+
+        ``[None]`` means the full monitor -- the source interprets None that way.
+        """
+        if self.regions:
+            return list(self.regions)
+        if self.region is not None:
+            return [self.region]
+        return [None]
 
 
 @dataclass
@@ -359,7 +378,18 @@ def _coerce(annotation: Any, current: Any, value: Any) -> Any:
         return value
 
     if origin in (tuple, list):
-        return tuple(value) if isinstance(value, (list, tuple)) else value
+        if not isinstance(value, (list, tuple)):
+            return value
+        args = get_args(annotation)
+        if origin is tuple and args and Ellipsis not in args:
+            items = [
+                _coerce(args[i] if i < len(args) else None, None, v) for i, v in enumerate(value)
+            ]
+        elif args and len(args) == 1:
+            items = [_coerce(args[0], None, v) for v in value]
+        else:
+            items = list(value)
+        return tuple(items) if origin is tuple else items
     if annotation is bool:
         if isinstance(value, bool):
             return value
@@ -387,7 +417,15 @@ def _fmt_key(key: str) -> str:
     return '"' + key.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _fmt_scalar(value: Any) -> str:
+def _fmt_scalar(value: Any) -> str | None:
+    """Format a TOML value, or None when it cannot be represented.
+
+    TOML has no null literal. Writing ``str(None)`` produced ``region = "None"``,
+    which then loaded back as the *string* "None" instead of the None our
+    optional fields expect.
+    """
+    if value is None:
+        return None
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
@@ -401,20 +439,28 @@ def _fmt_scalar(value: Any) -> str:
 
 def _dump_toml(data: dict[str, Any]) -> str:
     lines: list[str] = []
-    scalar_items = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    scalar_items = {k: v for k, v in data.items() if not isinstance(v, dict) and v is not None}
     table_items = {k: v for k, v in data.items() if isinstance(v, dict)}
     for key, value in scalar_items.items():
-        lines.append(f"{_fmt_key(key)} = {_fmt_scalar(value)}")
+        rendered = _fmt_scalar(value)
+        if rendered is not None:
+            lines.append(f"{_fmt_key(key)} = {rendered}")
     for section, table in table_items.items():
         lines.append("")
         lines.append(f"[{section}]")
-        flat = {k: v for k, v in table.items() if not isinstance(v, dict)}
+        flat = {k: v for k, v in table.items() if not isinstance(v, dict) and v is not None}
         nested = {k: v for k, v in table.items() if isinstance(v, dict)}
         for key, value in flat.items():
-            lines.append(f"{_fmt_key(key)} = {_fmt_scalar(value)}")
+            rendered = _fmt_scalar(value)
+            if rendered is not None:
+                lines.append(f"{_fmt_key(key)} = {rendered}")
         for sub, subtable in nested.items():
             lines.append("")
             lines.append(f"[{section}.{sub}]")
             for key, value in subtable.items():
-                lines.append(f"{_fmt_key(key)} = {_fmt_scalar(value)}")
+                if value is None:
+                    continue
+                rendered = _fmt_scalar(value)
+                if rendered is not None:
+                    lines.append(f"{_fmt_key(key)} = {rendered}")
     return "\n".join(lines) + "\n"
