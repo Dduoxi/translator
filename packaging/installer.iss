@@ -21,12 +21,15 @@ WizardStyle=modern
 ; Per-user install: no admin prompt, and the credential store entry lands in the
 ; user's own Windows Credential Manager, which is what keyring expects.
 PrivilegesRequired=lowest
-ArchitecturesInstallIn64BitMode=x64compatible
-ArchitecturesAllowed=x64compatible
+; "x64" works on every Inno Setup 6.x; "x64compatible" needs 6.3+.
+ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64
 
+; Chinese is NOT bundled with Inno Setup (it is an unofficial community
+; translation), so referencing it aborts the compile with "Could not read file".
+; The installer wizard stays English; the application itself is Chinese.
 [Languages]
 Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "cn"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"

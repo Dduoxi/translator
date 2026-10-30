@@ -57,7 +57,19 @@ jobs:
 
       - name: Build the installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+          # Resolve ISCC instead of hardcoding one path, and print its version so
+          # a failure here is obvious from the log.
+          $iscc = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe not found after installing Inno Setup" }
+          Write-Host "using $iscc"
+          & $iscc /Q packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path "dist\installer\Translator-Setup.exe")) {
+            throw "installer was not produced"
+          }
 
       - name: Show output sizes
         run: |
