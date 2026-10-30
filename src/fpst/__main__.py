@@ -14,6 +14,8 @@ fpst setup    # re-run the first-run wizard (key + regions)
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.util
 import logging
 import platform
 import sys
@@ -53,11 +55,57 @@ OPTIONAL_PACKAGES = [
 ]
 
 
+def _setup_frozen_logging() -> None:
+    """Log to a file when running from a packaged build.
+
+    The bundled app has no console (it is a tray program), so stderr is
+    invisible. Without this, "it does not work" is undebuggable for the user.
+    """
+    import logging
+
+    from .core.config import app_data_dir
+
+    log_dir = app_data_dir() / "logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_dir / "fpst.log", encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
+        root = logging.getLogger()
+        root.setLevel(logging.INFO)
+        root.addHandler(handler)
+        # Our own chatter is useful; third-party HTTP tracing is not.
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+    except Exception:  # noqa: BLE001 - never fail startup over logging
+        pass
+
+
+_MODULE_FOR_DIST = {
+    "opencv-python-headless": "cv2",
+    "rapidocr-onnxruntime": "rapidocr_onnxruntime",
+    "faster-whisper": "faster_whisper",
+    "PySide6": "PySide6",
+}
+
+
 def _pkg_version(dist: str) -> str:
+    """Best-effort version string, or "-" when the package is absent.
+
+    In a frozen build the dist metadata is usually gone, so fall back to checking
+    importability -- otherwise `doctor` reports every dependency as missing and
+    the one command meant for support becomes actively misleading.
+    """
     try:
         return metadata.version(dist)
     except metadata.PackageNotFoundError:
-        return "-"
+        pass
+    module = _MODULE_FOR_DIST.get(dist, dist.replace("-", "_"))
+    try:
+        if importlib.util.find_spec(module) is not None:
+            return "bundled"
+    except (ImportError, ValueError):
+        pass
+    return "-"
 
 
 def cmd_doctor(_args: argparse.Namespace) -> int:
@@ -641,6 +689,8 @@ def main(argv: list[str] | None = None) -> int:
     # Line-buffer even when piped to a file/tee, so `fpst watch > log` streams.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+    if getattr(sys, "frozen", False):
+        _setup_frozen_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "func", None):

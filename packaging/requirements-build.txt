@@ -1,0 +1,4 @@
+# Build-time dependencies (Windows only). Install into the same venv.
+pyinstaller>=6.6
+# Runtime deps are pulled from the project itself:
+#   pip install -e .

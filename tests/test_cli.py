@@ -142,3 +142,18 @@ def test_run_parser_exposes_every_flag_cmd_run_reads():
         args = parser.parse_args(argv)
         for key, value in expected.items():
             assert getattr(args, key) == value, f"{argv} -> {key}"
+
+
+def test_pkg_version_falls_back_when_metadata_is_gone(monkeypatch, capsys):
+    """In a frozen build dist metadata is absent, and doctor used to report every
+    dependency as missing -- the one command meant for support, lying."""
+    from fpst import __main__ as m
+
+    monkeypatch.setattr(
+        m.metadata,
+        "version",
+        lambda dist: (_ for _ in ()).throw(m.metadata.PackageNotFoundError(dist)),
+    )
+    # rapidocr is installed in the dev venv, so the import fallback must find it.
+    assert m._pkg_version("rapidocr-onnxruntime") == "bundled"
+    assert m._pkg_version("definitely-not-installed-xyz") == "-"

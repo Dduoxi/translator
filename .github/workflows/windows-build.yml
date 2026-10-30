@@ -1,0 +1,78 @@
+name: Windows build
+
+# Produces the Windows installer on GitHub's own Windows runner.
+#
+# This exists because PyInstaller cannot cross-compile: a Linux machine can only
+# produce a Linux binary. Building on windows-latest is the only way to get a
+# real .exe from this repository.
+#
+# Download it from:
+#   * Actions run page -> Artifacts -> FpsTranslator-Setup
+#   * or the Releases page, when the build was triggered by a v* tag
+#
+# Trigger manually from the Actions tab, on every push, or by pushing a tag:
+#   git tag v0.1.0 && git push --tags
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[screen,ocr,translate,ui]"
+          pip install pyinstaller
+
+      - name: Switch OpenCV to the headless wheel
+        # rapidocr pulls in opencv-python, whose private Qt5 is ~30 MB of dead
+        # weight for us. Both wheels ship the same `cv2`, so uninstall first.
+        run: |
+          pip uninstall -y opencv-python
+          pip install --force-reinstall opencv-python-headless
+          python -c "import cv2; print('cv2', cv2.__version__)"
+
+      - name: Smoke test
+        run: python -m fpst doctor
+
+      - name: Build the application
+        run: pyinstaller --noconfirm --clean --distpath dist --workpath build packaging/fpst.spec
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build the installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+
+      - name: Show output sizes
+        run: |
+          Get-ChildItem dist\installer
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FpsTranslator-Setup
+          path: dist/installer/FpsTranslator-Setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach the installer to a release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/installer/FpsTranslator-Setup.exe
+          generate_release_notes: true

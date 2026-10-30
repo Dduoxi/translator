@@ -74,6 +74,67 @@ Windows 机器上建议 Python **3.11**（faster-whisper / PySide6 的轮子最�
 
 ---
 
+## 打包给 Windows 用
+
+**PyInstaller 不能交叉编译**：在 Linux/macOS 上跑只能得到本平台的二进制。要 Windows
+的 `.exe`，必须在 Windows 上构建。两条路，任选：
+
+### 路线 A：让仓库自动构建（推荐，不需要本地环境）
+
+1. 把仓库推到 GitHub
+2. 打开 **Actions → Windows build → Run workflow**
+
+构建完成后在该次运行的 **Artifacts** 里下载 `FpsTranslator-Setup`，那是一个可直接安装的
+`FpsTranslator-Setup.exe`。
+
+打 tag 会自动发 Release：
+
+```bash
+git tag v0.1.0
+git push --tags          # 之后在 Releases 页面直接下载
+```
+
+### 路线 B：在 Windows 上本地构建
+
+需要 Windows 上装 **Python 3.11 或 3.12**，然后：
+
+```powershell
+# 一键构建（自动建 venv、装依赖、跑 PyInstaller）
+powershell -ExecutionPolicy Bypass -File packaging\build_windows.ps1
+
+# 想要单个安装包，再装 Inno Setup 6 后执行
+powershell -ExecutionPolicy Bypass -File packaging\make_installer.ps1
+```
+
+产物：
+
+| 路径 | 内容 |
+|---|---|
+| `dist\FpsTranslator\FpsTranslator.exe` | 免安装版，整个目录可拷走 |
+| `dist\installer\FpsTranslator-Setup.exe` | 安装包（LZMA 压缩，约 130 MB）|
+
+### 体积构成（实测，Linux 版同构）
+
+| 组件 | 大小 | 说明 |
+|---|---|---|
+| OpenCV（headless）| 152 MB | rapidocr 的硬依赖，含 BLAS 和编解码库 |
+| PySide6 | 100 MB | 已剔除 WebEngine/Quick/3D 等 |
+| onnxruntime | 30 MB | OCR 推理 |
+| numpy | 41 MB | |
+| rapidocr 模型 | 16 MB | det + rec + cls |
+
+安装包经 LZMA 压缩后约 **130 MB**。构建脚本会**主动把 opencv-python 换成
+opencv-python-headless**——rapidocr 默认拉的是 GUI 版，会白带一整套私有 Qt5（约 30 MB）。
+
+### 装完之后
+
+首次启动会弹向导：先填翻译凭据，再拖框选游戏里的聊天区域。凭据存进 **Windows 凭据管理器**
+（DPAPI 加密），不落配置文件。
+
+出问题看日志：`%APPDATA%\FpsTranslator\logs\fpst.log`
+
+---
+
 ## 界面
 
 `fpst run` 启动的是完整应用：**托盘图标 + 透明字幕 + 设置窗口**。
