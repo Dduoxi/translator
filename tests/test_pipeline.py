@@ -270,3 +270,70 @@ def test_pipeline_with_real_ocr_end_to_end():
     assert sum("rush" in t for t in translated) == 1, "first line must not be re-translated"
     assert sum("rotating" in t for t in translated) == 1, "new line must be translated"
     assert len({s.src_text for s in got}) == 3
+
+
+# ------------------------------------------------------------------ debounce
+
+
+class ChurningSource(ScreenSource):
+    """A source whose image never settles -- like a scroll or fade animation."""
+
+    name = "churn"
+
+    def __init__(self) -> None:
+        self.n = 0
+
+    def open(self) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def grab(self) -> Frame | None:
+        self.n += 1
+        img = np.zeros((40, 80, 3), np.uint8)
+        img[:, :, 0] = self.n % 256  # every frame differs
+        return Frame(image=img)
+
+    @property
+    def size(self) -> tuple[int, int]:
+        return (80, 40)
+
+
+def test_debounce_still_fires_when_screen_never_settles():
+    """A continuously animating ROI must not starve OCR forever (starvation cap)."""
+    ocr = MockOCREngine(lines=["gg"])
+    pipeline = ScreenPipeline(
+        ChurningSource(),
+        ocr,
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+        settle_s=0.4,  # never settles; cap is max(1.6, 1.4) = 1.6 s
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: ocr.calls >= 1, timeout=5.0), "starvation cap never fired"
+    finally:
+        pipeline.stop()
+
+
+def test_debounce_suppresses_ocr_on_a_churning_screen():
+    """Before the cap expires, a still-animating screen should produce no OCR runs."""
+    ocr = MockOCREngine(lines=["gg"])
+    pipeline = ScreenPipeline(
+        ChurningSource(),
+        ocr,
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+        settle_s=0.5,
+    )
+    pipeline.start()
+    try:
+        time.sleep(0.3)  # cap is max(2.0, 1.5) = 2.0 s
+        assert ocr.calls == 0, f"OCR ran {ocr.calls}x before the screen settled"
+    finally:
+        pipeline.stop()

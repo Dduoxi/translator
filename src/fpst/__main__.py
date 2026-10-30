@@ -205,15 +205,21 @@ def cmd_bench(args: argparse.Namespace) -> int:
     total_pct = capture_pct + ocr_pct
 
     print()
-    print("steady state estimate (worst case: chat changes constantly):")
+    print("capture is always-on; OCR only runs when the ROI actually changes:")
     print(
         f"  capture  {capture_pct:5.1f}% of a core   ({cfg.screen.max_fps:g} fps x {grab_cpu:.1f} ms)"
     )
-    print(f"  ocr      {ocr_pct:5.1f}% of a core   (1 run / {interval:g}s x {ocr_cpu:.0f} ms)")
+    print()
+    print("  message rate     OCR only     total CPU")
+    for label, every in (("1 per 10 s", 10.0), ("1 per 5 s", 5.0), ("1 per 2 s", 2.0)):
+        msg_pct = ocr_cpu / (every * 1000) * 100
+        print(f"  {label:13}  {msg_pct:6.1f}%      {capture_pct + msg_pct:6.1f}% of a core")
     print(
-        f"  total    {total_pct:5.1f}% of a core   (= {total_pct / cores:4.1f}% of the whole machine)"
+        f"  {'saturated':13}  {ocr_pct:6.1f}%      {total_pct:6.1f}% of a core"
+        "   <- worst case (throttle-bound)"
     )
-    print(f"  memory   {rss_loaded:5.0f} MB")
+    print()
+    print(f"  machine-wide CPU  {total_pct / cores:5.1f}%   memory {rss_loaded:.0f} MB")
     print()
 
     problems = []

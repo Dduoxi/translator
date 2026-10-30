@@ -23,7 +23,7 @@ engine = "openai"
     cfg = AppConfig.load(p)
     assert cfg.screen.monitor == 2
     assert cfg.screen.region == (0.0, 0.6, 1.0, 0.4)  # list -> tuple
-    assert cfg.screen.max_fps == 4.0  # untouched default
+    assert cfg.screen.max_fps == 2.0  # untouched default
     assert cfg.translate.engine == "openai"
 
 

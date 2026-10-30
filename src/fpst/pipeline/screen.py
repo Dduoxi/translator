@@ -46,6 +46,8 @@ class PipelineStats:
     frames_changed: int = 0
     frames_dropped: int = 0
     ocr_runs: int = 0
+    ocr_space_ms: float = 0.0
+    """Total idle time between OCR runs, used by bench to estimate duty cycle."""
     lines_seen: int = 0
     lines_new: int = 0
     errors: int = 0
@@ -89,6 +91,7 @@ class ScreenPipeline:
         max_lines: int = 12,
         min_interval: float = 0.0,
         idle_timeout: float = 0.0,
+        settle_s: float = 0.0,
     ) -> None:
         self._source = source
         self._ocr = ocr
@@ -107,6 +110,10 @@ class ScreenPipeline:
         # max_fps. 0 disables the idle mode.
         self._idle_timeout = max(0.0, idle_timeout)
         self._last_change = time.monotonic()
+        # Debounce window: only hand a frame over once it has stopped changing.
+        self._settle = max(0.0, settle_s)
+        # Never let a continuously-animating screen starve OCR entirely.
+        self._settle_cap = max(self._settle * 4, self._settle + 1.0)
         self._dedupe = RecentTexts(ttl=dedupe_ttl)
         self._mailbox: LatestValue[Frame] = LatestValue()
         self._stop = threading.Event()
@@ -132,6 +139,7 @@ class ScreenPipeline:
             max_lines=cfg.ocr.max_lines,
             min_interval=cfg.performance.ocr_min_interval,
             idle_timeout=cfg.performance.idle_timeout,
+            settle_s=cfg.screen.settle_ms / 1000.0,
         )
 
     # ------------------------------------------------------------- lifecycle
@@ -180,6 +188,9 @@ class ScreenPipeline:
             return
 
         next_at = time.monotonic()
+        pending: Frame | None = None
+        last_change_at = 0.0
+        first_change_at = 0.0
         try:
             while not self._stop.is_set():
                 try:
@@ -188,11 +199,24 @@ class ScreenPipeline:
                     self.stats.errors += 1
                     log.exception("grab failed")
                     frame = None
+                now = time.monotonic()
                 if frame is not None:
                     self.stats.frames_grabbed += 1
                     self.stats.frames_changed += 1
-                    self._last_change = time.monotonic()
-                    self._mailbox.put(frame)
+                    self._last_change = now
+                    if pending is None:
+                        first_change_at = now
+                    pending = frame
+                    last_change_at = now
+
+                if pending is not None:
+                    # Debounce: release the frame only once the ROI holds still,
+                    # so we OCR finished text instead of a fade-in animation.
+                    stable_for = now - last_change_at
+                    starved = now - first_change_at >= self._settle_cap
+                    if stable_for >= self._settle or starved:
+                        self._mailbox.put(pending)
+                        pending = None
 
                 # Idle back-off: nothing has changed for a while, so there is
                 # nothing to find -- poll at 1 Hz instead of max_fps.

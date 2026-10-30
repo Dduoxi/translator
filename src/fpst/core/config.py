@@ -66,11 +66,20 @@ class ScreenConfig:
     """1-based monitor index, matching what Windows' display settings show."""
     region: tuple[float, float, float, float] | None = None
     """ROI as fractions of the monitor: (x, y, w, h). None = full monitor."""
-    max_fps: float = 4.0
-    """Capture poll rate. Grabbing is cheap (DXGI ~1ms, mss ~9-30ms) and is what
-    bounds reaction latency; OCR is the expensive stage and is separately
-    throttled by ``[performance] ocr_min_interval``. On Windows/DXGI this can go
-    to 15-30 without measurable cost; on mss keep it <= 4."""
+    max_fps: float = 2.0
+    """Capture poll rate. Chat is not a live feed -- messages arrive every few
+    seconds at best -- so 2 Hz bounds detection latency at 500 ms, which is
+    imperceptible for a message that itself appeared at a random moment.
+    Grabbing is cheap on DXGI (~1 ms), so Windows users can raise this to 10-15
+    for a snappier feel; on mss each grab costs 9-30 ms, so keep it <= 4."""
+    settle_ms: float = 250.0
+    """Debounce: after a change, wait until the ROI has been *unchanged* for this
+    long before running OCR.
+
+    Chat text fades/scrolls in over a few frames. OCRing mid-animation reads
+    half-rendered glyphs and burns several runs on one message. Waiting for a
+    quarter second of stillness gives clean text and one run instead of five.
+    Set to 0 to OCR the first changed frame immediately."""
     min_change_ratio: float = 0.004
     """Fraction of changed pixels needed to bother running OCR."""
 
