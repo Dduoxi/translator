@@ -80,6 +80,11 @@ class OCRConfig:
     merge_lines: bool = True
     """Join nearby boxes into sentences (chat wraps across lines)."""
     max_lines: int = 12
+    threads: int = 0
+    """onnxruntime intra-op threads. 0 = auto (cpu_count//2, capped at 8)."""
+    det_limit_side: int = 960
+    rec_batch: int = 1
+    """Keep at 1: batching pads every line to the longest one and is slower here."""
 
 
 @dataclass

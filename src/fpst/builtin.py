@@ -16,11 +16,11 @@ log = logging.getLogger(__name__)
 
 MODULES = [
     "fpst.translate.mock",
-    # step 1+
+    "fpst.ocr.mock",
     "fpst.capture.mss_source",
+    "fpst.capture.dxgi",
     "fpst.ocr.rapidocr_engine",
     "fpst.translate.glossary",
-    "fpst.asr.mock",
 ]
 
 MISSING: dict[str, str] = {}

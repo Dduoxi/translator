@@ -2,6 +2,7 @@
 
 fpst doctor   # environment + engine availability report (run this first on Windows)
 fpst config   # write a commented default config.toml and print its path
+fpst scan     # capture the configured ROI once and print what OCR sees
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import argparse
 import platform
 import sys
+import time
 from importlib import metadata
 
 from .builtin import MISSING, load_builtin_engines
@@ -72,6 +74,53 @@ def cmd_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scan(args: argparse.Namespace) -> int:
+    """Capture once and OCR it -- the fastest way to tune a ROI."""
+    from .capture import make_screen_source
+    from .ocr import make_ocr_engine, postprocess
+
+    load_builtin_engines()
+    cfg = AppConfig.load(args.config)
+    if args.region:
+        cfg.screen.region = tuple(float(v) for v in args.region)
+    cfg.screen.min_change_ratio = 0  # always get a frame on a one-shot scan
+
+    source = make_screen_source(cfg.screen)
+    try:
+        source.open()
+        width, height = source.size
+        print(f"capture: {width}x{height} region={cfg.screen.region}")
+        frame = source.grab()
+    finally:
+        source.close()
+
+    if frame is None:
+        print("no frame captured")
+        return 1
+
+    if args.save:
+        import numpy as np
+
+        np.save(args.save, frame.image)
+        print(f"frame saved to {args.save}")
+
+    engine = make_ocr_engine(cfg.ocr)
+    engine.warmup()
+    try:
+        started = time.perf_counter()
+        regions = engine.recognize(frame)
+        elapsed = (time.perf_counter() - started) * 1000
+    finally:
+        engine.close()
+
+    lines = postprocess(regions, merge=cfg.ocr.merge_lines)[: cfg.ocr.max_lines]
+    print(f"ocr: {len(regions)} boxes -> {len(lines)} lines in {elapsed:.0f} ms")
+    print("-" * 60)
+    for line in lines:
+        print(f"[{line.confidence:.2f}] {line.text}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="fpst", description="in-game FPS translator")
     sub = parser.add_subparsers(dest="command")
@@ -82,6 +131,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_config = sub.add_parser("config", help="write a default config.toml")
     p_config.add_argument("--path", default=None, help="override target path")
     p_config.set_defaults(func=cmd_config)
+
+    p_scan = sub.add_parser("scan", help="capture the ROI once and print OCR output")
+    p_scan.add_argument("--config", default=None, help="config file to load")
+    p_scan.add_argument(
+        "--region",
+        nargs=4,
+        metavar=("X", "Y", "W", "H"),
+        help="ROI as fractions of the monitor, e.g. 0 0.55 1 0.45",
+    )
+    p_scan.add_argument("--save", default=None, help="write the captured frame as .npy")
+    p_scan.set_defaults(func=cmd_scan)
     return parser
 
 

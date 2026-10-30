@@ -59,12 +59,37 @@ python -m fpst doctor
 # 生成默认配置
 python -m fpst config
 
-# 测试
+# 截一次屏，看看 OCR 能读出什么（调 ROI 用这个）
+python -m fpst scan --region 0.02 0.55 0.5 0.4
+
+# 测试（-m 'not slow' 跳过加载真模型的用例）
 python -m pytest -q
 ```
 
 Windows 机器上建议 Python **3.11**（faster-whisper / PySide6 的轮子最全），
 用 `uv` 或官方安装包均可。
+
+---
+
+## 实测性能（Ryzen 4800U，16 线程，无独显）
+
+OCR 用的 PP-OCRv4 mobile（det + rec）。三个反直觉的结论：
+
+| 配置 | 耗时 | 说明 |
+|---|---|---|
+| 全部默认（16 线程 + batch 6） | 815 ms | onnxruntime 默认值在这里是最差的 |
+| 8 线程 + batch 6 | 658 ms | det=75ms, rec=564ms |
+| **8 线程 + batch 1** | **430 ms** | 当前默认 |
+
+1. **线程数不能给满**。`intra_op_num_threads=16` 比 `8` 慢一倍，这些 mobile 模型
+   太小，线程调度开销盖过并行收益。默认取 `cpu_count//2`，上限 8。
+2. **`rec_batch_num` 必须是 1**。批处理会把每行 padding 到最长行的宽度，一句 44
+   字符的消息能让另外三行短消息的计算量翻 4 倍。
+3. **det 不是瓶颈，rec 是**（75ms vs 564ms）。所以真正的优化杠杆不是「让 OCR 更快」，
+   而是「不跑 OCR」—— 见 `capture/gate.py` 的 `ChangedOnly`。
+
+ROI 大小是线性成本：全屏 1920x1080 有 78 个文本框，要 **5 秒**；裁到
+`864x540` 的 22 个框，1.4 秒。所以 `screen.region` 不是可选项，是必须配的。
 
 ---
 
