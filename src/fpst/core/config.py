@@ -67,7 +67,10 @@ class ScreenConfig:
     region: tuple[float, float, float, float] | None = None
     """ROI as fractions of the monitor: (x, y, w, h). None = full monitor."""
     max_fps: float = 4.0
-    """Capture+OCR budget. Above ~5 fps you burn CPU for no readability gain."""
+    """Capture poll rate. Grabbing is cheap (DXGI ~1ms, mss ~9-30ms) and is what
+    bounds reaction latency; OCR is the expensive stage and is separately
+    throttled by ``[performance] ocr_min_interval``. On Windows/DXGI this can go
+    to 15-30 without measurable cost; on mss keep it <= 4."""
     min_change_ratio: float = 0.004
     """Fraction of changed pixels needed to bother running OCR."""
 
@@ -85,6 +88,9 @@ class OCRConfig:
     det_limit_side: int = 960
     rec_batch: int = 1
     """Keep at 1: batching pads every line to the longest one and is slower here."""
+    rec_height: int = 32
+    """Recogniser input height. 32 is 2.3x cheaper than the stock 48 at equal
+    accuracy; dropping to 24 breaks recognition. Cost is quadratic in this."""
 
 
 @dataclass
@@ -138,6 +144,28 @@ class UIConfig:
 
 
 @dataclass
+class PerformanceConfig:
+    """The "do not hurt the game" knobs.
+
+    A background overlay shares the machine with something that needs every
+    core. These defaults favour low resource use over low latency; the budget
+    they enforce is documented in the README and measured by ``fpst bench``.
+    """
+
+    ocr_min_interval: float = 1.5
+    """Minimum seconds between two OCR runs. This is the real throttle: capture
+    stays fast (it is cheap) while recognition is spaced out."""
+    low_priority: bool = True
+    """Drop this process below normal priority so the game always preempts us."""
+    idle_timeout: float = 0.0
+    """After this many seconds with no change, poll at 1 Hz instead of max_fps.
+    0 = never idle back off."""
+    cpu_reserve: int = 0
+    """Leave this many logical cores unclaimed (0 = use the OS default).
+    Best-effort affinity hint, mainly useful on Windows."""
+
+
+@dataclass
 class AppConfig:
     screen: ScreenConfig = field(default_factory=ScreenConfig)
     ocr: OCRConfig = field(default_factory=OCRConfig)
@@ -145,6 +173,7 @@ class AppConfig:
     asr: ASRConfig = field(default_factory=ASRConfig)
     translate: TranslateConfig = field(default_factory=TranslateConfig)
     ui: UIConfig = field(default_factory=UIConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
 
     # ---------------------------------------------------------------- loading
     @classmethod

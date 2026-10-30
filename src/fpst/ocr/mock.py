@@ -8,7 +8,7 @@ from ..core.types import Frame, Lang, Source, TextRegion
 
 
 class MockOCREngine(OCREngine):
-    """Returns scripted lines, one set per call (last set repeats)."""
+    """Returns the same scripted lines on every call -- like a static screen."""
 
     name = "mock"
 
@@ -27,8 +27,6 @@ class MockOCREngine(OCREngine):
 
     def recognize(self, frame: Frame) -> list[TextRegion]:
         self.calls += 1
-        if self.calls > 1:
-            return []
         out: list[TextRegion] = []
         for i, text in enumerate(self._script):
             out.append(

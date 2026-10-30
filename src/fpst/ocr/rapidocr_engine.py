@@ -1,24 +1,33 @@
 """RapidOCR (PP-OCRv4 mobile) implementation of :class:`OCREngine`.
 
 Tuning notes, measured on a 16-thread Ryzen 4800U, 760x240 crop with 4 chat
-lines:
+lines. The lesson is that **wall-clock and CPU cost pull in opposite
+directions**, and for a background tool CPU is what matters:
 
-    threads  rec_batch  total   det    rec
-    16       6          815 ms   82 ms  697 ms   <- onnxruntime defaults
-    8        6          658 ms   75 ms  564 ms
-    8        1          430 ms   75 ms  289 ms   <- chosen
+    threads   wall     CPU     CPU at 1 fps
+    1         688 ms   781 ms   78% of a core   <- chosen
+    2         502 ms  1168 ms  117%
+    4         333 ms  1655 ms  166%
+    8         371 ms  3325 ms  333%   <- onnxruntime's default did this
 
-Two counter-intuitive wins:
+8 threads burn 4.3x the CPU of 1 thread to save 1.9x the latency. We are a
+overlay running next to a game that needs the cores; we must be the cheapest
+thing on the machine, not the fastest. So: one thread, and instead buy latency
+back by throttling *when* we run rather than *how fast* we run.
 
-1. ``intra_op_num_threads`` must NOT be "all cores". onnxruntime oversubscribes
-   on these small mobile models and gets *slower*.
-2. ``rec_batch_num`` must be 1. Batching pads every line to the longest line's
-   width, so one 44-character message makes three short lines 4x more expensive
-   than they need to be. Sequential is faster here.
+Other findings:
 
-Remaining cost is dominated by the recogniser (long lines -> wide input to the
-CTC model). The real lever is therefore *not running OCR at all* when nothing
-changed -- see :class:`fpst.capture.gate.ChangedOnly`.
+* ``rec_batch_num`` must be 1. Batching pads every line to the longest line's
+  width, so one 44-character message makes the short lines 4x more expensive.
+* ``rec_img_shape`` height 48 -> 32 is the single biggest win: identical text
+  on 4/4 chat lines at 2.3x less CPU (922 -> 399 ms). The recogniser input is
+  3xHxW with W proportional to H, so cost is quadratic in height. Height 24
+  breaks recognition entirely, so 32 is the floor for chat-sized glyphs.
+* ``Det.limit_type`` must be "max". The bundled default ("min") *upscales* the
+  crop to 736px on the short side -- 4x the pixels for an already-legible crop.
+* The recogniser dominates (75 ms det vs 289 ms rec). The lever is therefore not
+running OCR at all when nothing changed -- see
+:class:`fpst.capture.gate.ChangedOnly`.
 """
 
 from __future__ import annotations
@@ -43,7 +52,12 @@ __all__ = ["RapidOCREngine", "default_threads"]
 
 
 def default_threads() -> int:
-    return max(1, min(8, (os.cpu_count() or 4) // 2))
+    """One thread on purpose -- see the module docstring.
+
+    Override only if you accept multi-core burn: ``[ocr] threads = 2`` roughly
+    halves wall-clock latency at 1.5x the CPU cost.
+    """
+    return 1
 
 
 class RapidOCREngine(OCREngine):
@@ -58,6 +72,7 @@ class RapidOCREngine(OCREngine):
         use_cls: bool = False,
         max_det_side: int = 2000,
         rec_batch: int = 1,
+        rec_height: int = 32,
         **_ignored: object,
     ) -> None:
         self._lang = lang
@@ -67,6 +82,11 @@ class RapidOCREngine(OCREngine):
         self._use_cls = use_cls
         self._max_det_side = max_det_side
         self._rec_batch = max(1, int(rec_batch))
+        # Height of the recogniser's normalised input. The bundled default is
+        # 48; 32 measures identically on chat-sized text at 2.3x less CPU,
+        # because the input is 3xHxW and W scales with H -- so cost is
+        # quadratic in this number. 24 breaks recognition outright.
+        self._rec_height = max(16, int(rec_height))
         self._engine = None
         self._config_file: str | None = None
 
@@ -99,6 +119,10 @@ class RapidOCREngine(OCREngine):
         cfg["Det"]["limit_type"] = "max"
         if "rec_batch_num" in cfg.get("Rec", {}):
             cfg["Rec"]["rec_batch_num"] = self._rec_batch
+        if "rec_img_shape" in cfg.get("Rec", {}):
+            shape = list(cfg["Rec"]["rec_img_shape"])
+            shape[1] = self._rec_height
+            cfg["Rec"]["rec_img_shape"] = shape
 
         fd, path = tempfile.mkstemp(suffix=".yaml", prefix="fpst-ocr-")
         with os.fdopen(fd, "w", encoding="utf-8") as fh:

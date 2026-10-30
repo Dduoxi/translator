@@ -101,10 +101,10 @@ def test_mock_engine_registered_and_scripted():
     from fpst.core.registry import create
 
     engine = create(OCREngine, "mock", lines=["alpha", "beta"])
-    first = engine.recognize(Frame(image=np.zeros((10, 10, 3), np.uint8)))
-    assert [r.text for r in first] == ["alpha", "beta"]
-    second = engine.recognize(Frame(image=np.zeros((10, 10, 3), np.uint8)))
-    assert second == []
+    frame = Frame(image=np.zeros((10, 10, 3), np.uint8))
+    assert [r.text for r in engine.recognize(frame)] == ["alpha", "beta"]
+    # Repeated exactly like a frozen chat box -- dedupe is the pipeline's job.
+    assert [r.text for r in engine.recognize(frame)] == ["alpha", "beta"]
 
 
 # ------------------------------------------------------------------ real engine

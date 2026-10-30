@@ -22,6 +22,7 @@ def make_ocr_engine(cfg: OCRConfig) -> OCREngine:
         threads=cfg.threads,
         det_limit_side=cfg.det_limit_side,
         rec_batch=cfg.rec_batch,
+        rec_height=cfg.rec_height,
     )
 
 
