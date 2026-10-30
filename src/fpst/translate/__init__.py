@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from ..core.config import TranslateConfig
 from ..core.interfaces import Translator
@@ -15,15 +14,21 @@ __all__ = ["make_translator", "resolve_engine", "has_api_key"]
 log = logging.getLogger(__name__)
 
 
-def has_api_key(cfg: TranslateConfig) -> bool:
-    return bool(cfg.api_key.strip() or os.environ.get(cfg.api_key_env, "").strip())
+def has_api_key(cfg: TranslateConfig, api_key: str | None = None) -> bool:
+    if api_key is not None:
+        return bool(api_key.strip())
+    from ..runtime.credentials import is_local_endpoint, load_api_key
+
+    if is_local_endpoint(cfg.base_url):
+        return True  # loopback models need no key
+    return bool(load_api_key(cfg)[0])
 
 
-def resolve_engine(cfg: TranslateConfig) -> str:
+def resolve_engine(cfg: TranslateConfig, api_key: str | None = None) -> str:
     """Resolve ``engine = "auto"`` to something concrete."""
     if cfg.engine != "auto":
         return cfg.engine
-    if has_api_key(cfg):
+    if has_api_key(cfg, api_key):
         return "llm"
     log.warning(
         "no API key found in %s or [translate] api_key -- falling back to the mock "
@@ -41,9 +46,14 @@ def merged_glossary(cfg: TranslateConfig) -> dict[str, str]:
     return {k: v for k, v in merged.items() if k.strip() and v.strip()}
 
 
-def make_translator(cfg: TranslateConfig) -> Translator:
-    engine = resolve_engine(cfg)
+def make_translator(cfg: TranslateConfig, api_key: str | None = None) -> Translator:
+    engine = resolve_engine(cfg, api_key)
     glossary = merged_glossary(cfg)
+    if engine == "llm" and api_key is None:
+        # Prefer the OS credential store over the config file / env.
+        from ..runtime.credentials import load_api_key
+
+        api_key = load_api_key(cfg)[0] or None
     base = create(
         Translator,
         engine,
@@ -51,7 +61,7 @@ def make_translator(cfg: TranslateConfig) -> Translator:
         timeout_s=cfg.timeout_s,
         base_url=cfg.base_url,
         model=cfg.model,
-        api_key=cfg.api_key or None,
+        api_key=api_key or cfg.api_key or None,
         api_key_env=cfg.api_key_env,
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,

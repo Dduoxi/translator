@@ -79,3 +79,51 @@ def test_roi_verify_runs_ocr_on_the_selection(monkeypatch, capsys, tmp_path):
     out = capsys.readouterr().out
     assert code == 0
     assert "boxes ->" in out
+
+
+# ------------------------------------------------------ release gate: api key
+
+
+def _watch_args(**kwargs) -> argparse.Namespace:
+    base = {"config": None, "region": None, "fps": None, "no_prompt": True}
+    base.update(kwargs)
+    return argparse.Namespace(**base)
+
+
+def test_watch_refuses_to_start_without_a_key(monkeypatch, capsys):
+    """Release rule: no key, no service -- and fail before touching the screen."""
+    from fpst.runtime.credentials import MissingApiKey
+
+    def no_key(*args, **kwargs):
+        raise MissingApiKey("未找到翻译密钥")
+
+    monkeypatch.setattr("fpst.runtime.credentials.ensure_api_key", no_key)
+
+    started = []
+    monkeypatch.setattr("fpst.capture.make_screen_source", lambda cfg: started.append(True))
+
+    code = cli.cmd_watch(_watch_args())
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "无法启动" in captured.err
+    assert started == [], "must not open the screen source before the key is verified"
+
+
+def test_watch_passes_no_prompt_flag_through(monkeypatch):
+    seen = {}
+
+    def fake_ensure(cfg, interactive=True, reason=""):
+        seen["interactive"] = interactive
+        return "sk-x"
+
+    monkeypatch.setattr("fpst.runtime.credentials.ensure_api_key", fake_ensure)
+    monkeypatch.setattr("fpst.pipeline.ScreenPipeline.run_forever", lambda self: None)
+    monkeypatch.setattr("fpst.pipeline.ScreenPipeline.stop", lambda self, timeout=3.0: None)
+    monkeypatch.setattr("fpst.capture.make_screen_source", lambda cfg: None)
+
+    cli.cmd_watch(_watch_args(no_prompt=True))
+    assert seen["interactive"] is False
+
+    cli.cmd_watch(_watch_args(no_prompt=False))
+    assert seen["interactive"] is True

@@ -76,12 +76,30 @@ Windows 机器上建议 Python **3.11**（faster-whisper / PySide6 的轮子最�
 
 ## 配置翻译服务（唯一需要密钥的地方）
 
-默认 `engine = "auto"`：**发现密钥就用 LLM，没有就退回 mock 并警告**，所以拿到代码
-就能跑。密钥优先从环境变量读，别写进配置文件：
+**密钥是启动的硬性前提**——没有密钥不允许运行（`engine = "mock"` 除外，那是调试开关）。
+首次运行 `fpst watch` 会直接提示输入，校验通过后才开始工作：
+
+```bash
+fpst auth set        # 交互式输入，自动校验并存进系统凭据管理器
+fpst auth status     # 查看（掩码显示）和来源
+fpst auth clear      # 删除
+```
+
+存储优先级（第一个命中的生效）：
+
+| 顺序 | 位置 | 说明 |
+|---|---|---|
+| 1 | 环境变量 `FPST_API_KEY` | CI / 高级用户 |
+| 2 | **系统凭据管理器** | Windows 凭据管理器（DPAPI 加密，绑定用户账户）|
+| 3 | `config.toml` | 兼容用，会打印警告 |
+
+不写进配置文件是有意的：明文 key 一旦截图或发到群里就泄露了。
 
 ```bash
 export FPST_API_KEY="sk-..."        # Windows: setx FPST_API_KEY "sk-..."
 ```
+
+本地模型（Ollama/LM Studio，`localhost`/`127.0.0.1`）**不要求密钥**，自动跳过。
 
 任何 **OpenAI 兼容**端点都能用，只改 `base_url` + `model`：
 

@@ -6,6 +6,7 @@ fpst roi      # drag a box on screen -> get ROI fractions to paste into config
 fpst scan     # capture the configured ROI once and print what OCR sees
 fpst watch    # run the always-on scan loop, printing translations
 fpst bench    # measure what this will actually cost your game
+fpst auth     # store / inspect / remove the translation API key
 """
 
 from __future__ import annotations
@@ -76,6 +77,70 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         for module, reason in sorted(MISSING.items()):
             print(f"  {module}: {reason}")
     return 0
+
+
+def cmd_auth(args: argparse.Namespace) -> int:
+    """Inspect, store or remove the translation API key."""
+    from .runtime.credentials import (
+        MissingApiKey,
+        clear_api_key,
+        ensure_api_key,
+        is_local_endpoint,
+        load_api_key,
+        mask,
+    )
+
+    cfg = AppConfig.load(args.config)
+    tr = cfg.translate
+    print(f"endpoint : {tr.base_url}")
+    print(f"model    : {tr.model}")
+
+    if is_local_endpoint(tr.base_url):
+        print("key      : not required (local endpoint)")
+        return 0
+
+    action = args.action or "status"
+
+    if action == "status":
+        key, source = load_api_key(tr)
+        if not key:
+            print("key      : MISSING")
+            print()
+            print(f"run `fpst auth set` to store one (or set {tr.api_key_env})")
+            return 1
+        print(f"key      : {mask(key)}  (from {source})")
+        if source == "config":
+            print("warning  : stored in plaintext in config.toml; prefer `fpst auth set`")
+        ok, message = validate_api_key_hint(tr, key, args.verify)
+        print(f"check    : {message}")
+        return 0 if ok else 1
+
+    if action == "clear":
+        removed = clear_api_key()
+        print("removed from the credential store" if removed else "nothing stored")
+        return 0
+
+    # action == "set"
+    try:
+        key = ensure_api_key(tr, interactive=True, reason="正在设置翻译密钥。")
+    except MissingApiKey as exc:
+        print(f"失败：{exc}")
+        return 1
+    if not key:
+        print("此端点无需密钥")
+        return 0
+    return 0
+
+
+def validate_api_key_hint(cfg, key: str, do_verify: bool) -> tuple[bool, str]:
+    """Only hit the network when the user asked for it (``--verify``)."""
+    if not do_verify:
+        from .runtime.credentials import mask
+
+        return True, f"{mask(key)} (未校验，加 --verify 可实测)"
+    from .runtime.credentials import validate_api_key
+
+    return validate_api_key(key, cfg.base_url, cfg.model, cfg.timeout_s)
 
 
 def cmd_roi(args: argparse.Namespace) -> int:
@@ -157,6 +222,19 @@ def cmd_watch(args: argparse.Namespace) -> int:
         cfg.screen.region = tuple(float(v) for v in args.region)
     if args.fps:
         cfg.screen.max_fps = args.fps
+
+    # Release rule: no key, no service. Fail before touching the screen.
+    from .runtime.credentials import MissingApiKey, ensure_api_key
+
+    try:
+        ensure_api_key(
+            cfg.translate,
+            interactive=not args.no_prompt,
+            reason="首次使用需要配置翻译密钥。",
+        )
+    except MissingApiKey as exc:
+        print(f"无法启动：{exc}", file=sys.stderr)
+        return 2
 
     # Be a good citizen before doing any work at all.
     for note in apply_resource_policy(
@@ -394,7 +472,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_watch.add_argument(
         "--fps", type=float, default=None, help="capture rate (default from config)"
     )
+    p_watch.add_argument(
+        "--no-prompt", action="store_true", help="never ask for a key; fail instead"
+    )
     p_watch.set_defaults(func=cmd_watch)
+
+    p_auth = sub.add_parser("auth", help="store / inspect / remove the API key")
+    p_auth.add_argument("action", nargs="?", choices=["status", "set", "clear"], default="status")
+    p_auth.add_argument("--config", default=None, help="config file to load")
+    p_auth.add_argument("--verify", action="store_true", help="make a real request to check")
+    p_auth.set_defaults(func=cmd_auth)
 
     p_bench = sub.add_parser("bench", help="measure CPU/memory cost against the budget")
     p_bench.add_argument("--config", default=None, help="config file to load")
