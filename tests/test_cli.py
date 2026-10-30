@@ -128,3 +128,17 @@ def test_watch_passes_no_prompt_flag_through(monkeypatch):
 
     cli.cmd_watch(_watch_args(no_prompt=False))
     assert seen["interactive"] is True
+
+
+def test_run_parser_exposes_every_flag_cmd_run_reads():
+    """Regression: cmd_run read args.no_settings while the parser still defined
+    --settings, so `fpst run` crashed on startup with AttributeError."""
+    parser = cli.build_parser()
+    for argv, expected in (
+        (["run"], {"no_settings": False, "skip_setup": False, "no_prompt": False}),
+        (["run", "--no-settings"], {"no_settings": True}),
+        (["run", "--skip-setup", "--no-prompt"], {"skip_setup": True, "no_prompt": True}),
+    ):
+        args = parser.parse_args(argv)
+        for key, value in expected.items():
+            assert getattr(args, key) == value, f"{argv} -> {key}"

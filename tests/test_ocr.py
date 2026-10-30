@@ -5,7 +5,7 @@ import pytest
 
 from fpst.core.types import Frame, Lang, Source, TextRegion
 from fpst.ocr import postprocess
-from fpst.ocr.lines import drop_duplicates, merge_horizontal
+from fpst.ocr.lines import drop_duplicates, drop_oversized, merge_horizontal
 
 
 def region(text: str, bbox: tuple[int, int, int, int]) -> TextRegion:
@@ -147,3 +147,35 @@ def test_rapidocr_reads_rendered_chat():
     assert len(texts) == 2, texts
     assert "rush" in texts[0] and "site" in texts[0]
     assert "enemy" in texts[1]
+
+
+# --------------------------------------------------------------- oversized box
+
+
+def test_box_spanning_two_lines_is_dropped():
+    """A mid-transition frame can fuse two lines into one tall box, which the
+    recogniser then reads as one garbled string."""
+    normal = [region(f"line {i}", (10, 10 + i * 30, 200, 36 + i * 30)) for i in range(3)]
+    fused = region("two lines worth of text", (10, 100, 400, 160))  # 60px tall
+    kept = drop_oversized([*normal, fused])
+    assert fused not in kept
+    assert len(kept) == 3
+
+
+def test_oversized_filter_needs_enough_boxes():
+    """With one or two boxes there is no meaningful median, so leave them alone."""
+    tall = region("tall", (0, 0, 100, 200))
+    assert drop_oversized([tall]) == [tall]
+    assert len(drop_oversized([tall, region("a", (0, 300, 50, 320))])) == 2
+
+
+def test_oversized_filter_never_empties_the_screen():
+    tall = [region(f"t{i}", (0, i * 100, 100, i * 100 + 90)) for i in range(4)]
+    assert len(drop_oversized(tall)) == 4
+
+
+def test_postprocess_applies_the_filter():
+    normal = [region(f"line {i}", (10, 10 + i * 30, 200, 36 + i * 30)) for i in range(3)]
+    fused = region("garbled two lines", (10, 100, 400, 160))
+    out = postprocess([*normal, fused], merge=False)
+    assert all("garbled" not in r.text for r in out)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QEventLoop, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -53,6 +53,9 @@ def toml_regions(regions: list[PickedRegion]) -> str:
 
 
 class RoiPicker(QWidget):
+    finished = Signal()
+    """Emitted once the window closes, whichever way the user left it."""
+
     def __init__(self, screen, monitor_index: int) -> None:
         super().__init__(
             None,
@@ -246,17 +249,15 @@ class RoiPicker(QWidget):
             self.update()
 
     def _finish(self) -> None:
-        """Close and exit the event loop.
+        """Close and signal completion.
 
-        A ``Qt.Tool`` window does not count as "the last window" for
-        ``quitOnLastWindowClosed``, so closing alone would leave
-        ``QApplication.exec()`` spinning forever and the caller hanging.
+        Deliberately does *not* call ``QApplication.quit()``: that would kill the
+        host application's main loop. The caller drives a nested
+        :class:`QEventLoop` and quits only that (see :func:`pick_regions`).
         """
         self.releaseKeyboard()
         self.close()
-        app = QApplication.instance()
-        if app is not None:
-            app.quit()
+        self.finished.emit()
 
     # ----------------------------------------------------------- conversions
     def _fractions(self, sel: QRect) -> tuple[float, float, float, float]:
@@ -298,8 +299,26 @@ class RoiPicker(QWidget):
         )
 
 
+_active_picker: RoiPicker | None = None
+
+
 def pick_regions(monitor: int = 1) -> list[PickedRegion] | None:
-    """Show the picker on ``monitor`` (1-based). ``None`` means cancelled."""
+    """Show the picker on ``monitor`` (1-based). ``None`` means cancelled.
+
+    Runs a **nested** event loop rather than calling ``QApplication.exec()``.
+    exec() refuses to re-enter (Qt returns immediately with -1) when the host
+    application already has a loop running, which made the tray's "re-pick
+    regions" button do nothing at all.
+
+    Also guards against a second invocation while one picker is already open: two
+    full-screen dim layers is a good way to look hung.
+    """
+    global _active_picker
+    if _active_picker is not None:
+        _active_picker.raise_()
+        _active_picker.activateWindow()
+        return None
+
     app = QApplication.instance() or QApplication([])
     screens = app.screens()
     if not screens:
@@ -307,10 +326,19 @@ def pick_regions(monitor: int = 1) -> list[PickedRegion] | None:
     index = max(0, min(monitor - 1, len(screens) - 1))
 
     picker = RoiPicker(screens[index], index + 1)  # type: ignore[arg-type]
-    picker.show()
-    picker.raise_()
-    picker.activateWindow()
-    app.exec()
+    loop = QEventLoop()
+    picker.finished.connect(loop.quit)
+    _active_picker = picker
+    try:
+        picker.show()
+        picker.raise_()
+        picker.activateWindow()
+        loop.exec()
+    finally:
+        _active_picker = None
+        if picker.isVisible():
+            picker.close()
+        picker.deleteLater()
     return picker.result or None
 
 

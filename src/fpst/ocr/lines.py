@@ -14,7 +14,7 @@ from collections.abc import Iterable
 
 from ..core.types import TextRegion
 
-__all__ = ["merge_horizontal", "drop_duplicates"]
+__all__ = ["merge_horizontal", "drop_duplicates", "drop_oversized"]
 
 
 def _center_y(bbox: tuple[int, int, int, int]) -> float:
@@ -114,3 +114,25 @@ def drop_duplicates(regions: Iterable[TextRegion]) -> list[TextRegion]:
         seen.add(key)
         out.append(region)
     return out
+
+
+def drop_oversized(regions: Iterable[TextRegion], factor: float = 2.2) -> list[TextRegion]:
+    """Discard boxes that are far taller than the rest of the lines.
+
+    A frame captured mid-transition (chat scrolling, text fading in) can make the
+    detector return one box spanning two lines. The recogniser then reads them as
+    a single garbled string -- e.g. "Playero xX_Shadow_Xx: ..." -- which is worse
+    than showing nothing.
+
+    Only applied when there are enough boxes for a median to be meaningful, and
+    the threshold is generous, so a legitimately large line survives.
+    """
+    items = [r for r in regions if r.bbox]
+    if len(items) < 3:
+        return list(regions)
+    heights = sorted(_height(r.bbox) for r in items)  # type: ignore[arg-type]
+    median = heights[len(heights) // 2]
+    limit = max(median * factor, median + 12)
+    kept = [r for r in items if _height(r.bbox) <= limit]  # type: ignore[arg-type]
+    # Never let the filter empty the screen.
+    return kept if kept else list(regions)

@@ -345,7 +345,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     return run_app(
         args.config,
-        show_settings=args.demo or args.settings,
+        show_settings=args.demo or not args.no_settings,
         demo=args.demo,
         interactive=not args.no_prompt,
     )
@@ -563,7 +563,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--skip-setup", action="store_true", help="skip the region wizard, use config as-is"
     )
     p_run.add_argument("-v", "--verbose", action="store_true", help="log pipeline details")
-    p_run.add_argument("--settings", action="store_true", help="open the settings window on start")
+    p_run.add_argument(
+        "--no-settings",
+        action="store_true",
+        help="start in the tray only; do not open the settings window",
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_setup = sub.add_parser("setup", help="first-run wizard: key + regions")

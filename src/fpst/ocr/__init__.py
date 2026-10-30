@@ -8,9 +8,15 @@ from ..core.config import OCRConfig
 from ..core.interfaces import OCREngine
 from ..core.registry import create
 from ..core.types import TextRegion
-from .lines import drop_duplicates, merge_horizontal
+from .lines import drop_duplicates, drop_oversized, merge_horizontal
 
-__all__ = ["make_ocr_engine", "postprocess", "merge_horizontal", "drop_duplicates"]
+__all__ = [
+    "make_ocr_engine",
+    "postprocess",
+    "merge_horizontal",
+    "drop_duplicates",
+    "drop_oversized",
+]
 
 
 def make_ocr_engine(cfg: OCRConfig) -> OCREngine:
@@ -27,6 +33,6 @@ def make_ocr_engine(cfg: OCRConfig) -> OCREngine:
 
 
 def postprocess(regions: Iterable[TextRegion], merge: bool = True) -> list[TextRegion]:
-    regions = list(regions)
+    regions = drop_oversized(list(regions))
     regions = merge_horizontal(regions) if merge else [r for r in regions if r.text]
     return drop_duplicates(regions)

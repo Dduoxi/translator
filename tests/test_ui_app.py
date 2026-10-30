@@ -278,3 +278,48 @@ def test_tray_icon_colours_differ_per_state(app):
     from fpst.ui.tray import STATE_COLOURS
 
     assert len({*STATE_COLOURS.values()}) == len(STATE_COLOURS), "each state needs its own colour"
+
+
+def test_tray_single_click_opens_settings(app):
+    """Regression: only DoubleClick was wired, and several desktops never emit
+    it, so clicking the tray icon appeared to do nothing."""
+    from PySide6.QtWidgets import QSystemTrayIcon
+
+    from fpst.ui.tray import TrayIcon
+
+    calls = []
+    tray = TrayIcon(
+        on_toggle=lambda: calls.append("toggle"),
+        on_settings=lambda: calls.append("settings"),
+        on_pick_regions=lambda: None,
+        on_set_key=lambda: None,
+        on_quit=lambda: None,
+    )
+    try:
+        reasons = QSystemTrayIcon.ActivationReason
+        tray._on_activated(reasons.Trigger)
+        assert calls == ["settings"]
+        tray._on_activated(reasons.DoubleClick)
+        assert calls == ["settings", "settings"]
+        tray._on_activated(reasons.MiddleClick)
+        assert calls == ["settings", "settings", "toggle"]
+    finally:
+        tray.hide()
+
+
+def test_hidden_window_is_not_offered_as_the_settings_target(app, cfg_path):
+    """The settings window must be openable repeatedly, not just once."""
+    from fpst.ui.settings_window import SettingsWindow
+
+    window = SettingsWindow()
+    try:
+        window.load_config(AppConfig.load(cfg_path))
+        window.show()
+        app.processEvents()
+        assert window.isVisible()
+        window.hide()
+        window.show()
+        app.processEvents()
+        assert window.isVisible(), "window must be re-showable after hiding"
+    finally:
+        window.close()

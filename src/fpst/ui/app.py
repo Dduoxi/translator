@@ -174,7 +174,7 @@ def run_app(
     if show_settings or demo:
         open_settings()
     elif tray is not None:
-        tray.notify("FPS 翻译已启动", "双击托盘图标打开设置")
+        tray.notify("FPS 翻译已启动", "单击托盘图标打开设置，中键暂停")
 
     # Qt blocks Python signal handling unless something wakes the loop.
     import signal

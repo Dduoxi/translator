@@ -191,3 +191,62 @@ def test_widget_renders_in_every_state(picker, geometry):
     picker._dragging = True
     picker._draft = _at(geometry, 0.5, 0.1, 0.3, 0.2)
     picker.grab()
+
+
+# ------------------------------------------------- nested event loop (tray use)
+
+
+def test_pick_regions_works_inside_a_running_event_loop(app):
+    """Regression: the tray's "re-pick regions" button called pick_regions while
+    the application event loop was already running. QApplication.exec() refuses
+    to re-enter (returns -1 immediately), so the caller got an empty result and
+    the button appeared to do nothing -- while leaving a full-screen dim layer
+    on top of the overlay."""
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    import fpst.ui.roi_picker as rp
+
+    holder: dict[str, object] = {}
+
+    def drive() -> None:
+        picker = rp._active_picker
+        if picker is None:
+            QTimer.singleShot(20, drive)
+            return
+        picker._boxes = [QRect(10, 10, 120, 60)]
+        picker.keyPressEvent(
+            QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier)
+        )
+
+    host = QEventLoop()
+
+    def work() -> None:
+        QTimer.singleShot(40, drive)
+        holder["result"] = rp.pick_regions(monitor=1)  # called from inside host.exec()
+        host.quit()
+
+    QTimer.singleShot(0, work)
+    host.exec()
+
+    picked = holder["result"]
+    assert picked is not None, "picker returned nothing when called from a live event loop"
+    assert len(picked) == 1
+    assert rp._active_picker is None, "picker must not stay registered as active"
+
+
+def test_second_pick_while_one_is_open_is_ignored(app):
+    """Two full-screen dim layers would look like a hang."""
+    import fpst.ui.roi_picker as rp
+
+    class Fake:
+        def raise_(self):
+            pass
+
+        def activateWindow(self):
+            pass
+
+    rp._active_picker = Fake()  # type: ignore[assignment]
+    try:
+        assert rp.pick_regions(monitor=1) is None
+    finally:
+        rp._active_picker = None

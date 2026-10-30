@@ -84,6 +84,8 @@ class TrayIcon(QObject):
         self._tray.setContextMenu(menu)
         self._tray.activated.connect(self._on_activated)
         self._on_settings = on_settings
+        self._on_toggle = on_toggle
+        self._tray.setToolTip("FPS 翻译 · 点击打开设置")
         self._tray.show()
 
     # ------------------------------------------------------------------ state
@@ -93,7 +95,7 @@ class TrayIcon(QObject):
         self._toggle_action.setText("暂停" if state == RunState.RUNNING else "启动")
 
     def set_status(self, text: str) -> None:
-        self._tray.setToolTip(f"FPS 翻译\n{text}")
+        self._tray.setToolTip(f"FPS 翻译\n{text}\n单击打开设置，中键暂停/启动")
 
     def notify(self, title: str, message: str) -> None:
         try:
@@ -102,8 +104,18 @@ class TrayIcon(QObject):
             log.debug("tray notification failed: %s", exc)
 
     def _on_activated(self, reason) -> None:
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+        """Single click opens settings.
+
+        Double-click is not delivered by every desktop (KDE/GNOME app-indicator
+        backends often only emit Trigger), and a tray icon that does nothing when
+        clicked looks broken. So Trigger and DoubleClick both open settings, and
+        MiddleClick toggles running.
+        """
+        reasons = QSystemTrayIcon.ActivationReason
+        if reason in (reasons.Trigger, reasons.DoubleClick):
             self._on_settings()
+        elif reason == reasons.MiddleClick:
+            self._on_toggle()
 
     @property
     def available(self) -> bool:
