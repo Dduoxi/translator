@@ -89,7 +89,7 @@ export FPST_API_KEY="sk-..."        # Windows: setx FPST_API_KEY "sk-..."
 [translate]
 engine = "llm"
 base_url = "https://api.deepseek.com/v1"
-model = "deepseek-chat"
+model = "deepseek-flash"     # 快，适合字幕；deepseek-v4-pro 会推理，不要用
 # 通义: https://dashscope.aliyuncs.com/compatible-mode/v1   model = "qwen-plus"
 # Kimi: https://api.moonshot.cn/v1                         model = "moonshot-v1-8k"
 # 本地 Ollama（无需密钥）: http://localhost:11434/v1       model = "qwen2.5:7b"
@@ -123,6 +123,24 @@ context = "Dota 2. 'tp' = 传送. 'deny' = 反补. 保留英雄名原文."
 
 **失败策略**：模型返回坏 JSON、条数不对或超时，都退回**原文**而不是丢掉这一行 ——
 看到英文也比什么都没有强，字幕不会断档。
+
+### 必须关掉推理（已默认处理）
+
+DeepSeek V4 默认会「先思考再回答」。同一份请求跑 5 次实测：
+
+| 参数 | 触发推理 | 中位延迟 | 空响应 |
+|---|---|---|---|
+| 默认 | 3/5 | 1483 ms | 偶发 |
+| `effort = "low"` | 5/5（**更糟**） | 1536 ms | — |
+| `reasoning_effort = "none"` | 0/5 | 1189 ms | 0 |
+| **`thinking = {type: "disabled"}`** | **0/5** | **880 ms** | **0** |
+
+推理对我们是有害的：它吃掉 `max_tokens`，实测出现过整个预算被思考耗尽、`content`
+返回空字符串的情况——**等于没有字幕**。而且 `temperature = 0` 挡不住它。
+
+代码已默认对 `deepseek*` 模型发送 `thinking = {type: "disabled"}`。如果你的端点不认
+这个字段，设 `disable_thinking = false`；其他 provider 需要额外参数时用
+`extra_params`。
 
 ---
 

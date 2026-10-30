@@ -115,6 +115,8 @@ class LLMTranslator(Translator):
         max_tokens: int = 1024,
         context: str = "",
         transport: object | None = None,
+        disable_thinking: bool = True,
+        extra_params: dict[str, object] | None = None,
         **_ignored: object,
     ) -> None:
         self._base_url = base_url.rstrip("/")
@@ -126,6 +128,8 @@ class LLMTranslator(Translator):
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._context = context.strip() or "(none)"
+        self._disable_thinking = disable_thinking
+        self._extra_params = dict(extra_params or {})
         # Injected in tests so no socket is ever opened.
         self._transport = transport
         self._client = None
@@ -164,7 +168,7 @@ class LLMTranslator(Translator):
         if self._client is None:
             self.warmup()
 
-        payload = {
+        payload: dict[str, object] = {
             "model": self._model,
             "temperature": self._temperature,
             "max_tokens": self._token_budget(texts),
@@ -182,6 +186,19 @@ class LLMTranslator(Translator):
                 {"role": "user", "content": json.dumps(list(texts), ensure_ascii=False)},
             ],
         }
+
+        if self._disable_thinking and self._model.startswith("deepseek"):
+            # DeepSeek V4 reasons by default, and reasoning is fatal here:
+            # measured over 5 identical requests it fired 3 times, adding 0.6 s
+            # and once consuming the entire token budget, returning an EMPTY
+            # content field -- i.e. no subtitle at all. temperature=0 does not
+            # stop it. `thinking` is the switch that actually works (5/5
+            # suppressed, 1483 ms -> 880 ms median).
+            #
+            # `effort: low` is NOT the answer: it made things worse (5/5
+            # reasoning) because it caps effort rather than disabling thought.
+            payload["thinking"] = {"type": "disabled"}
+        payload.update(self._extra_params)
 
         self.requests += 1
         try:
@@ -275,7 +292,10 @@ class LLMTranslator(Translator):
         parsing and degrades the whole batch to the source text.
         """
         estimate = sum(len(t) for t in texts) * 2 + 64
-        return max(256, min(self._max_tokens, estimate))
+        # Floor of 512, not 256: max_tokens is a ceiling and unused tokens are
+        # not billed, but a model that decides to reason anyway would burn the
+        # whole budget on thoughts and return an empty answer.
+        return max(512, min(self._max_tokens, estimate))
 
     @property
     def stats(self) -> dict[str, int]:

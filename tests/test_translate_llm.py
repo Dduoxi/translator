@@ -380,3 +380,55 @@ def test_blank_entries_are_dropped():
 
     cfg = TranslateConfig(glossary={"a": "b", "c": "  "})
     assert merged_glossary(cfg) == {"a": "b"}
+
+
+# --------------------------------------------------------- reasoning suppression
+
+
+def _payload_for(**kwargs):
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '["x"]'}}]})
+
+    defaults = {"api_key": "k", "transport": httpx.MockTransport(handler)}
+    defaults.update(kwargs)
+    engine = LLMTranslator(**defaults)
+    engine.warmup()
+    engine.translate(["rush"], Lang.EN, Lang.ZH)
+    engine.close()
+    return captured
+
+
+def test_deepseek_requests_disable_thinking():
+    """DeepSeek V4 reasons by default; that produced empty answers and +0.6 s."""
+    payload = _payload_for(model="deepseek-flash")
+    assert payload["thinking"] == {"type": "disabled"}
+
+
+def test_non_deepseek_models_do_not_get_the_param():
+    """Sending an unknown field to OpenAI/Ollama can 400 the request."""
+    payload = _payload_for(model="gpt-4o-mini")
+    assert "thinking" not in payload
+
+
+def test_thinking_can_be_left_enabled_for_reasoning_models():
+    payload = _payload_for(model="deepseek-flash", disable_thinking=False)
+    assert "thinking" not in payload
+
+
+def test_extra_params_are_merged_into_the_request():
+    payload = _payload_for(model="gpt-4o-mini", extra_params={"top_p": 0.9})
+    assert payload["top_p"] == 0.9
+
+
+def test_extra_params_can_override_the_thinking_default():
+    payload = _payload_for(model="deepseek-flash", extra_params={"thinking": {"type": "enabled"}})
+    assert payload["thinking"] == {"type": "enabled"}
+
+
+def test_token_floor_is_512_not_256():
+    engine = LLMTranslator(api_key="k", max_tokens=2048)
+    assert engine._token_budget(["ab"]) == 512
+    assert engine._token_budget(["x" * 3000]) == 2048

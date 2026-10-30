@@ -56,6 +56,8 @@ def make_translator(cfg: TranslateConfig) -> Translator:
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,
         context=cfg.context,
+        disable_thinking=cfg.disable_thinking,
+        extra_params=cfg.extra_params,
     )
     # The cache sits outside the engine so it also covers the mock and any
     # future engine, and so hit-rate is visible in one place.

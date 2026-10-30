@@ -200,12 +200,21 @@ class TranslateConfig:
     https://dashscope.aliyuncs.com/compatible-mode/v1
     https://api.moonshot.cn/v1
     http://localhost:11434/v1          (Ollama, no key needed)"""
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"
+    """DeepSeek: deepseek-flash (fast, recommended) | deepseek-v4-pro (reasons,
+    measured 10 s and an empty answer here -- not suitable for subtitles)."""
     api_key: str = ""
     """Prefer the environment variable over pasting a key into this file."""
     api_key_env: str = "FPST_API_KEY"
     temperature: float = 0.0
-    max_tokens: int = 1024
+    max_tokens: int = 2048
+    """Ceiling, not a charge. Only generated tokens are billed."""
+    disable_thinking: bool = True
+    """Suppress reasoning on DeepSeek models. Reasoning adds latency and can
+    consume the whole token budget, returning an empty answer."""
+    extra_params: dict[str, object] = field(default_factory=dict)
+    """Raw JSON merged into the request body, for provider-specific options
+    (e.g. {"reasoning_effort": "none"}, {"top_p": 0.9})."""
 
 
 @dataclass
