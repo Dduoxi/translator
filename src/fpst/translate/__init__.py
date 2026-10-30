@@ -34,12 +34,20 @@ def resolve_engine(cfg: TranslateConfig) -> str:
     return "mock"
 
 
+def merged_glossary(cfg: TranslateConfig) -> dict[str, str]:
+    """``glossary`` replaces the defaults; ``glossary_extra`` layers on top."""
+    merged = dict(cfg.glossary)
+    merged.update(cfg.glossary_extra)
+    return {k: v for k, v in merged.items() if k.strip() and v.strip()}
+
+
 def make_translator(cfg: TranslateConfig) -> Translator:
     engine = resolve_engine(cfg)
+    glossary = merged_glossary(cfg)
     base = create(
         Translator,
         engine,
-        glossary=cfg.glossary,
+        glossary=glossary,
         timeout_s=cfg.timeout_s,
         base_url=cfg.base_url,
         model=cfg.model,
@@ -47,12 +55,13 @@ def make_translator(cfg: TranslateConfig) -> Translator:
         api_key_env=cfg.api_key_env,
         temperature=cfg.temperature,
         max_tokens=cfg.max_tokens,
+        context=cfg.context,
     )
     # The cache sits outside the engine so it also covers the mock and any
     # future engine, and so hit-rate is visible in one place.
     from .cache import CachingTranslator
 
-    return CachingTranslator(base, maxsize=cfg.cache_size, glossary=cfg.glossary)
+    return CachingTranslator(base, maxsize=cfg.cache_size, glossary=glossary)
 
 
 def to_lang(value: str) -> Lang:

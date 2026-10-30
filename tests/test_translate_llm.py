@@ -270,22 +270,11 @@ def test_glossary_is_filtered_to_terms_in_the_batch():
     assert "eco" not in system
 
 
-def test_glossary_falls_back_to_full_list_when_nothing_matches():
-    captured: dict[str, object] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.update(json.loads(request.content))
-        return httpx.Response(200, json={"choices": [{"message": {"content": '["x"]'}}]})
-
-    engine = LLMTranslator(
-        api_key="k",
-        transport=httpx.MockTransport(handler),
-        glossary={"rush": "快攻"},
-    )
-    engine.warmup()
-    engine.translate(["hello there"], Lang.EN, Lang.ZH)
-    engine.close()
-    assert "rush = 快攻" in captured["messages"][0]["content"]  # type: ignore[index]
+def test_unmatched_glossary_is_not_injected_at_all():
+    """Injecting 40+ irrelevant terms would waste tokens and add noise."""
+    prompt = _prompt_for(["hello there"], {"rush": "快攻"})
+    assert "rush = 快攻" not in prompt
+    assert "no glossary term appears" in prompt
 
 
 def test_token_budget_scales_with_batch_and_is_capped():
@@ -295,3 +284,99 @@ def test_token_budget_scales_with_batch_and_is_capped():
     assert short >= 256
     assert long > short
     assert long <= 4096
+
+
+# ------------------------------------------------------- glossary word bounds
+
+
+def _prompt_for(texts, glossary, context=""):
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "[]"}}]})
+
+    engine = LLMTranslator(
+        api_key="k",
+        transport=httpx.MockTransport(handler),
+        glossary=glossary,
+        context=context,
+    )
+    engine.warmup()
+    engine.translate(texts, Lang.EN, Lang.ZH)
+    engine.close()
+    return captured["messages"][0]["content"]  # type: ignore[index]
+
+
+def test_short_abbreviation_does_not_match_inside_a_word():
+    """Regression: 'gg' is a substring of 'aggressive'."""
+    prompt = _prompt_for(["he is aggressive"], {"gg": "打得好"})
+    assert "gg = 打得好" not in prompt
+
+
+def test_abbreviation_matches_as_a_whole_word():
+    prompt = _prompt_for(["gg wp team"], {"gg": "打得好"})
+    assert "gg = 打得好" in prompt
+
+
+def test_abbreviation_matches_with_punctuation_around_it():
+    prompt = _prompt_for(["nice, gg!"], {"gg": "打得好"})
+    assert "gg = 打得好" in prompt
+
+
+def test_multi_word_glossary_term_matches():
+    prompt = _prompt_for(["please cover me now"], {"cover me": "掩护我"})
+    assert "cover me = 掩护我" in prompt
+
+
+# ------------------------------------------------------------ genre coverage
+
+
+def test_prompt_is_not_fps_specific():
+    prompt = _prompt_for(["gank mid"], {})
+    assert "MOBA" in prompt
+    assert "hero shooter" in prompt
+    assert "first-person shooter" not in prompt
+
+
+def test_prompt_explains_abbreviations_generically():
+    prompt = _prompt_for(["oom"], {})
+    assert "oom" in prompt and "gank" in prompt and "ult" in prompt
+
+
+def test_context_is_injected():
+    prompt = _prompt_for(["ult ready"], {}, context="Overwatch. ult = 终极技能.")
+    assert "Overwatch. ult = 终极技能." in prompt
+
+
+def test_empty_context_shows_placeholder():
+    assert "(none)" in _prompt_for(["hi"], {})
+
+
+# ------------------------------------------------------- glossary_extra merge
+
+
+def test_glossary_extra_merges_over_defaults():
+    from fpst.core.config import DEFAULT_GLOSSARY
+    from fpst.translate import merged_glossary
+
+    cfg = TranslateConfig(glossary=dict(DEFAULT_GLOSSARY))
+    cfg.glossary_extra = {"tp": "传送", "gg": "牛"}
+    merged = merged_glossary(cfg)
+    assert merged["tp"] == "传送"
+    assert merged["gg"] == "牛"  # override wins
+    assert merged["wp"] == "干得漂亮"  # default survives
+
+
+def test_setting_glossary_replaces_the_defaults():
+    from fpst.translate import merged_glossary
+
+    cfg = TranslateConfig(glossary={"tp": "传送"})
+    assert merged_glossary(cfg) == {"tp": "传送"}
+
+
+def test_blank_entries_are_dropped():
+    from fpst.translate import merged_glossary
+
+    cfg = TranslateConfig(glossary={"a": "b", "c": "  "})
+    assert merged_glossary(cfg) == {"a": "b"}

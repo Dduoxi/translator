@@ -1,6 +1,9 @@
 # fps-translator
 
-FPS 游戏内实时翻译：**看懂屏幕、听懂队友**。
+多人游戏内实时翻译：**看懂屏幕、听懂队友**。
+
+适用于 FPS（CS2/Apex/瓦罗兰特）、MOBA（Dota 2/LoL）、英雄射击（守望先锋）等
+需要跨语言沟通的竞技游戏。
 
 本期范围（明确的非目标）：
 
@@ -96,9 +99,23 @@ model = "deepseek-chat"
 「快攻」，`eco` → 「生态」）。术语表会作为提示词注入：
 
 ```toml
-[translate.glossary]
-"cover me" = "掩护我"
+# 在默认术语表之上追加（推荐：不会丢掉内置的 gg/thx/oom 等）
+[translate.glossary_extra]
+"tp" = "传送"
+"deny" = "反补"
 peek = "探头对枪"
+
+# 完全替换内置术语表（谨慎用）
+# [translate.glossary]
+```
+
+**按游戏定制语境**——同一句黑话在不同品类里意思不同（`push` 在 Dota 是推塔，
+在 CS 是压上）。`context` 会覆盖通用规则的优先级：
+
+```toml
+[translate]
+context = "Dota 2. 'tp' = 传送. 'deny' = 反补. 保留英雄名原文."
+# context = "Overwatch. 'ult' = 终极技能. 保留英雄名原文: Tracer, Winston."
 ```
 
 **批量是必须的，不是优化**：屏幕上同时出现的 4 行会合并成 1 次请求。LLM 每次调用都

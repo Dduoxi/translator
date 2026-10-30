@@ -47,18 +47,22 @@ _LANG_NAMES = {
     Lang.RU: "Russian",
 }
 
-SYSTEM_PROMPT = """You are the subtitle translator for a live first-person
-shooter. You turn in-game chat and voice callouts into short {dst} subtitles a
-player can read in the middle of a firefight.
+SYSTEM_PROMPT = """You are the subtitle translator for live multiplayer games.
+You turn in-game chat and voice comms into short {dst} subtitles that a player
+can read while actually playing -- shooters, MOBAs, hero shooters alike.
 
 Translate from {src} into {dst}.
 
 Hard rules:
 - Output ONLY the translation. No notes, no quotes, no romanisation.
 - SHORT subtitles. Aim under 20 characters. Drop filler a player does not need
-  mid-fight ("please", "I think", "you know", "can you").
-- Keep player names, clan tags, numbers and map codes exactly as written:
-  PlayerOne, xX_Shadow_Xx, 2hp, B site, mid, long, A main.
+  mid-match ("please", "I think", "you know", "can you").
+- Read abbreviations as a teammate would. Praise: gg, wp, nt, gj. Ability or
+  resource state: oom, cd, ult, no ult. Actions: gank, roam, dive, push, peel.
+  When an abbreviation is ambiguous, choose the meaning a teammate needs to act
+  on, not the dictionary sense.
+- Keep player names, clan tags, numbers, hero/champion names and map codes
+  exactly as written: PlayerOne, xX_Shadow_Xx, Tracer, 2hp, B site, A main.
 - Keep the terse, spoken register of voice comms. Never formal or literary.
 - The input comes from OCR and may contain garbled fragments. Silently ignore
   them; never guess or invent words that are not there.
@@ -68,14 +72,28 @@ Hard rules:
 
 Examples (input -> output):
 ["gg wp", "rush b fast i have flash"] -> ["打得好", "快攻B点，我有闪"]
+["oom no mana, need 30s", "gank mid now"] -> ["没蓝了，等30秒", "现在抓中路"]
 ["xX_Shadow_Xx: 2hp behind the box", "nice shot"] -> ["xX_Shadow_Xx：残血，箱子后", "好枪"]
-["+150", "PlayerOne", "ez"] -> ["", "", "简单"]
+["+150", "ez", "PlayerOne"] -> ["", "简单", ""]
+
+Game context (may be empty; it overrides the general rules above):
+{context}
 
 Glossary (use these renderings when the term appears):
 {glossary}
 
 Output: one JSON array of exactly {count} strings, in input order.
 No markdown fences, no other text."""
+
+
+def _mentions(haystack: str, term: str) -> bool:
+    """Whole-word match, not substring.
+
+    Substring matching is wrong for a glossary full of short abbreviations:
+    "gg" occurs inside "aggressive", so a naive ``in`` check would inject
+    ``gg = 打得好`` into a line that has nothing to do with it.
+    """
+    return re.search(rf"(?<!\w){re.escape(term)}(?!\w)", haystack, re.IGNORECASE) is not None
 
 
 def _lang_name(lang: Lang) -> str:
@@ -95,6 +113,7 @@ class LLMTranslator(Translator):
         timeout_s: float = 6.0,
         temperature: float = 0.0,
         max_tokens: int = 1024,
+        context: str = "",
         transport: object | None = None,
         **_ignored: object,
     ) -> None:
@@ -106,6 +125,7 @@ class LLMTranslator(Translator):
         self._timeout = timeout_s
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._context = context.strip() or "(none)"
         # Injected in tests so no socket is ever opened.
         self._transport = transport
         self._client = None
@@ -154,6 +174,7 @@ class LLMTranslator(Translator):
                     "content": SYSTEM_PROMPT.format(
                         src=_lang_name(src),
                         dst=_lang_name(dst),
+                        context=self._context,
                         glossary=self._glossary_text(texts),
                         count=len(texts),
                     ),
@@ -229,20 +250,22 @@ class LLMTranslator(Translator):
     def _glossary_text(self, texts: Sequence[str] | None = None) -> str:
         """Only inject terms that actually appear in this batch.
 
-        A 100-term glossary pasted into every request is pure token waste and
-        distracts the model. Substring matching over the batch is crude (a bare
-        check for "hold" also hits "holder") but over-including a term is
-        harmless, whereas missing one loses the correct rendering.
+        A 40+ term glossary pasted into every request is pure token waste and
+        distracts the model. Matching is whole-word (see :func:`_mentions`),
+        because short abbreviations are substrings of ordinary words.
         """
         if not self._glossary:
             return "(none)"
         if texts:
-            haystack = " ".join(texts).casefold()
+            haystack = " ".join(texts)
             relevant = {
-                term: value for term, value in self._glossary.items() if term.casefold() in haystack
+                term: value for term, value in self._glossary.items() if _mentions(haystack, term)
             }
             if relevant:
                 return ", ".join(f"{k} = {v}" for k, v in relevant.items())
+            # Nothing matched, so a glossary cannot help this batch. Injecting
+            # all 40+ terms anyway would be pure token waste and noise.
+            return "(no glossary term appears in this batch)"
         return ", ".join(f"{k} = {v}" for k, v in self._glossary.items())
 
     def _token_budget(self, texts: Sequence[str]) -> int:

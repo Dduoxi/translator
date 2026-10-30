@@ -27,20 +27,64 @@ __all__ = [
     "app_data_dir",
 ]
 
-# FPS-specific vocab that generic MT models routinely mangle.
+# Cross-genre gaming vocabulary.
+#
+# Kept genre-neutral on purpose: `push` means "推塔" in Dota but "压上" in CS, so
+# it is rendered generically ("推进") and users refine it per game via
+# [translate.context] or [translate.glossary_extra].
+#
+# Deliberately excluded: single ambiguous letters ("b" = 回城 would poison every
+# mention of "B site").
 DEFAULT_GLOSSARY: dict[str, str] = {
-    "rush": "快攻",
-    "push": "压上",
-    "flank": "侧翼包抄",
-    "rotate": "转点",
-    "peek": "探头对枪",
-    "hold": "守住",
-    "cover me": "掩护我",
-    "on my mark": "听我口令",
+    # -- universal chatter / politeness -------------------------------------
     "gg": "打得好",
+    "ggwp": "打得好",
     "wp": "干得漂亮",
+    "gj": "干得好",
     "nt": "可惜了",
+    "thx": "谢谢",
+    "ty": "谢谢",
+    "np": "不客气",
+    "ez": "简单",
+    "glhf": "祝好运",
+    "brb": "马上回来",
+    "afk": "暂离",
+    "omw": "马上到",
+    "lag": "网络卡",
+    "dc": "掉线",
+    "wp gg": "打得好",
+    # -- ability / resource state -------------------------------------------
+    "oom": "没蓝了",
+    "cd": "冷却中",
+    "ult": "大招",
+    "no ult": "没大招",
+    "mana": "蓝量",
+    # -- generic actions ----------------------------------------------------
+    "push": "推进",
+    "retreat": "撤退",
+    "dive": "突进",
+    "poke": "消耗",
+    "peel": "保护后排",
+    "gank": "抓人",
+    "roam": "游走",
+    "rotate": "转点",
+    # -- lanes / roles (MOBA) -----------------------------------------------
+    "mid": "中路",
+    "top": "上路",
+    "bot": "下路",
+    "jg": "打野",
+    "jungle": "打野",
+    "sup": "辅助",
+    "support": "辅助",
+    "carry": "核心",
+    # -- FPS callouts -------------------------------------------------------
+    "rush": "快攻",
+    "peek": "探头对枪",
+    "flank": "侧翼包抄",
     "eco": "经济局",
+    "cover me": "掩护我",
+    "hold": "守住",
+    "on my mark": "听我口令",
     "one hp": "残血一个",
     "trading": "换人",
 }
@@ -138,6 +182,16 @@ class TranslateConfig:
     cache_size: int = 1024
     timeout_s: float = 6.0
     glossary: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GLOSSARY))
+    """Setting [translate.glossary] REPLACES the built-in list."""
+    glossary_extra: dict[str, str] = field(default_factory=dict)
+    """[translate.glossary_extra] is merged ON TOP of ``glossary`` -- use this to
+    add game-specific terms without losing the defaults."""
+    context: str = ""
+    """Free-form hint injected into the prompt, for per-game accuracy:
+
+    "Overwatch. 'ult' = 终极技能. Keep hero names in English: Tracer, Winston."
+    "Dota 2. 'tp' = 传送. 'deny' = 反补."
+    """
 
     # --- engine = "llm": any OpenAI-compatible chat-completions endpoint -------
     base_url: str = "https://api.deepseek.com/v1"
