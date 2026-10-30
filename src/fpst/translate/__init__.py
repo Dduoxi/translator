@@ -59,6 +59,8 @@ def make_translator(cfg: TranslateConfig, api_key: str | None = None) -> Transla
         engine,
         glossary=glossary,
         timeout_s=cfg.timeout_s,
+        retries=cfg.retries,
+        retry_backoff_s=cfg.retry_backoff_s,
         base_url=cfg.base_url,
         model=cfg.model,
         api_key=api_key or cfg.api_key or None,

@@ -368,3 +368,70 @@ def test_skipped_translations_do_not_become_subtitles():
         pipeline.stop()
 
     assert [s.dst_text for s in got] == ["译:rush b", "译:PlayerOne"]
+
+
+# --------------------------------------------------- translation isolation
+
+
+def test_slow_translation_does_not_block_ocr():
+    """A 20 s LLM call must not stop the OCR loop.
+
+    Measured against the live DeepSeek API, the same prompt ranged from 0.8 s to
+    28 s. Translation therefore runs on its own thread; if it shared the OCR
+    thread, one sluggish request would freeze the subtitle feed.
+    """
+    import threading as _threading
+
+    release = _threading.Event()
+
+    class SlowTranslator(MockTranslator):
+        def translate(self, texts, src, dst):
+            release.wait(timeout=10)
+            return [f"译:{t}" for t in texts]
+
+    image = np.zeros((60, 200, 3), np.uint8)
+    ocr = MockOCREngine(lines=["gg"])
+    pipeline = ScreenPipeline(
+        ReplaySource([image]),
+        ocr,
+        SlowTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        # OCR keeps running even though the single translation call is stuck.
+        assert wait_until(lambda: ocr.calls >= 5, timeout=5.0), (
+            f"OCR stalled behind translation: only {ocr.calls} runs"
+        )
+    finally:
+        release.set()
+        pipeline.stop()
+
+
+def test_translation_runs_on_its_own_thread():
+    seen: dict[str, str] = {}
+
+    class ThreadRecorder(MockTranslator):
+        def translate(self, texts, src, dst):
+            import threading as _t
+
+            seen["name"] = _t.current_thread().name
+            return super().translate(texts, src, dst)
+
+    image = np.zeros((60, 200, 3), np.uint8)
+    pipeline = ScreenPipeline(
+        ReplaySource([image]),
+        MockOCREngine(lines=["gg"]),
+        ThreadRecorder(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: "name" in seen, timeout=5.0)
+    finally:
+        pipeline.stop()
+    assert seen["name"] == "fpst-translate"

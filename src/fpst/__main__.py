@@ -7,6 +7,7 @@ fpst scan     # capture the configured ROI once and print what OCR sees
 fpst watch    # run the always-on scan loop, printing translations
 fpst bench    # measure what this will actually cost your game
 fpst auth     # store / inspect / remove the translation API key
+fpst run      # the actual product: overlay subtitles on screen (--demo to try it)
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from .builtin import MISSING, load_builtin_engines
 from .core.config import AppConfig, default_config_path
 from .core.interfaces import ASREngine, AudioSource, OCREngine, ScreenSource, Translator
 from .core.registry import available
+from .core.types import Source
 
 KINDS = {
     "screen": ScreenSource,
@@ -291,6 +293,112 @@ def _rss_mb() -> float:
         return 0.0
 
 
+_DEMO_LINES = [
+    (
+        "PlayerOne: rush B site now, no one watching mid",
+        "PlayerOne：快攻B点，中路没人",
+        Source.SCREEN,
+    ),
+    ("xX_Shadow_Xx: gg wp", "xX_Shadow_Xx：打得好", Source.SCREEN),
+    ("TeamMate: enemy behind the box, two hp", "TeamMate：箱子后敌人，残血", Source.SCREEN),
+    ("enemy pushing A main, need backup", "敌人压A大，快来支援", Source.VOICE),
+    ("i have ult, ready when you are", "我有大招，随时可以上", Source.VOICE),
+    ("PlayerOne: need cover, reloading", "PlayerOne：掩护我，换弹", Source.SCREEN),
+]
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """The product: capture -> OCR -> translate -> transparent overlay."""
+    from PySide6.QtCore import QTimer
+
+    from .core.bus import EventBus
+    from .core.types import Lang, Subtitle
+    from .runtime import apply_resource_policy
+    from .runtime.credentials import MissingApiKey, ensure_api_key
+    from .ui.overlay import OverlayController, SubtitleOverlay, create_app
+
+    load_builtin_engines()
+    cfg = AppConfig.load(args.config)
+    if args.region:
+        cfg.screen.region = tuple(float(v) for v in args.region)
+
+    if not args.demo:
+        try:
+            ensure_api_key(
+                cfg.translate,
+                interactive=not args.no_prompt,
+                reason="首次使用需要配置翻译密钥。",
+            )
+        except MissingApiKey as exc:
+            print(f"无法启动：{exc}", file=sys.stderr)
+            return 2
+        for note in apply_resource_policy(
+            low_priority=cfg.performance.low_priority,
+            cpu_reserve=cfg.performance.cpu_reserve,
+        ):
+            print(f"resource policy: {note}")
+
+    app = create_app()
+    overlay = SubtitleOverlay(cfg.ui, monitor=cfg.screen.monitor, roi=cfg.screen.region)
+    overlay.show()
+
+    bus = EventBus()
+    controller = OverlayController(overlay, bus)
+
+    pipeline = None
+    demo_timer = None
+    if args.demo:
+        state = {"i": 0}
+
+        def feed() -> None:
+            src, dst, source = _DEMO_LINES[state["i"] % len(_DEMO_LINES)]
+            state["i"] += 1
+            bus.publish(
+                Subtitle(
+                    src_text=src,
+                    dst_text=dst,
+                    source=source,
+                    src_lang=Lang.EN,
+                    latency_ms=880.0,
+                )
+            )
+            app.processEvents()  # noqa: F841 - keep the demo lively without a pipeline
+
+        demo_timer = QTimer()
+        demo_timer.timeout.connect(feed)
+        demo_timer.start(2200)
+        print("demo mode: showing sample subtitles (Ctrl-C to stop)")
+    else:
+        from .pipeline import ScreenPipeline
+
+        pipeline = ScreenPipeline.from_config(cfg, bus)
+        pipeline.start()
+        print(
+            f"running: region={cfg.screen.region} at {cfg.screen.max_fps:g} fps, "
+            f"model={cfg.translate.model} (Ctrl-C to stop)"
+        )
+
+    # Let Ctrl-C actually reach us: Qt's event loop blocks Python signal handling
+    # unless something wakes it periodically.
+    import signal
+
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    wakeup = QTimer()
+    wakeup.timeout.connect(lambda: None)
+    wakeup.start(250)
+
+    try:
+        code = app.exec()
+    finally:
+        if demo_timer is not None:
+            demo_timer.stop()
+        if pipeline is not None:
+            pipeline.stop()
+            print(f"\n{pipeline.stats.summary()}")
+        controller.close()
+    return int(code)
+
+
 def cmd_bench(args: argparse.Namespace) -> int:
     """Measure the real cost, then compare it against the budget."""
     import os
@@ -476,6 +584,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-prompt", action="store_true", help="never ask for a key; fail instead"
     )
     p_watch.set_defaults(func=cmd_watch)
+
+    p_run = sub.add_parser("run", help="overlay translated subtitles on screen")
+    p_run.add_argument("--config", default=None, help="config file to load")
+    p_run.add_argument(
+        "--region", nargs=4, metavar=("X", "Y", "W", "H"), help="ROI as monitor fractions"
+    )
+    p_run.add_argument("--demo", action="store_true", help="show sample subtitles, no capture")
+    p_run.add_argument("--no-prompt", action="store_true", help="never ask for a key")
+    p_run.set_defaults(func=cmd_run)
 
     p_auth = sub.add_parser("auth", help="store / inspect / remove the API key")
     p_auth.add_argument("action", nargs="?", choices=["status", "set", "clear"], default="status")

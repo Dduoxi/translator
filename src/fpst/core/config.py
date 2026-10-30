@@ -180,7 +180,15 @@ class TranslateConfig:
     src_lang: str = "en"
     dst_lang: str = "zh"
     cache_size: int = 1024
-    timeout_s: float = 6.0
+    timeout_s: float = 20.0
+    """Per-request deadline. Measured against the live DeepSeek API, time-to-first
+    byte is ~0.2-0.5 s but total generation has ranged from 0.8 s to 28 s on the
+    same prompt, so a tight deadline mostly produces fallbacks. 20 s keeps the
+    common case working while still bounding a hung request."""
+    retries: int = 1
+    """Extra attempts after a timeout/5xx. Retried once because the slow tail is
+    transient; more than that just doubles latency."""
+    retry_backoff_s: float = 0.4
     glossary: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GLOSSARY))
     """Setting [translate.glossary] REPLACES the built-in list."""
     glossary_extra: dict[str, str] = field(default_factory=dict)
@@ -224,11 +232,35 @@ class UIConfig:
     opacity: float = 0.88
     max_lines: int = 4
     max_width_ratio: float = 0.62
-    anchor: str = "bottom-center"
-    """bottom-center | top-center | bottom-left | ..."""
+    anchor: str = "roi-below"
+    """Where the subtitle stack sits.
+
+    ROI-relative (follows the region you selected with `fpst roi`, so your eyes
+    never leave the chat box):
+        roi-below  just under the scanned region          (default)
+        roi-above  just above it
+        roi-over   centred on top of it, covering the original text
+    Screen-relative (classic subtitle placement):
+        bottom-center | top-center | bottom-left | bottom-right | center
+    """
+    roi_gap_px: int = 12
+    """Gap between the scanned region and the subtitle stack."""
     margin_px: int = 64
     show_source_text: bool = False
-    show_latency: bool = True
+    show_latency: bool = False
+    """Show the per-line latency badge. Debug aid; off by default."""
+    line_ttl: float = 8.0
+    """Seconds a subtitle stays on screen before fading out."""
+    fade_in_ms: int = 220
+    """Ramp-in time. A hard cut feels like a glitch mid-fight; a short fade reads
+    as the game rendering it. 0 disables."""
+    slide_in_px: int = 6
+    """Subtitle drifts up by this many pixels while fading in."""
+    outline: bool = True
+    """Black outline around glyphs -- essential over bright gameplay."""
+    background: bool = True
+    background_opacity: float = 0.55
+    """Dark panel behind each line, for readability over busy scenes."""
     screen_color: str = "#e8f0ff"
     voice_color: str = "#ffe9a8"
 

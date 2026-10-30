@@ -110,7 +110,9 @@ class LLMTranslator(Translator):
         api_key: str | None = None,
         api_key_env: str = "FPST_API_KEY",
         glossary: dict[str, str] | None = None,
-        timeout_s: float = 6.0,
+        timeout_s: float = 20.0,
+        retries: int = 1,
+        retry_backoff_s: float = 0.4,
         temperature: float = 0.0,
         max_tokens: int = 1024,
         context: str = "",
@@ -125,6 +127,8 @@ class LLMTranslator(Translator):
         self._api_key_env = api_key_env
         self._glossary = {k: v for k, v in (glossary or {}).items() if k}
         self._timeout = timeout_s
+        self._retries = max(0, int(retries))
+        self._backoff = max(0.0, retry_backoff_s)
         self._temperature = temperature
         self._max_tokens = max_tokens
         self._context = context.strip() or "(none)"
@@ -201,14 +205,10 @@ class LLMTranslator(Translator):
         payload.update(self._extra_params)
 
         self.requests += 1
-        try:
-            assert self._client is not None
-            response = self._client.post(f"{self._base_url}/chat/completions", json=payload)
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-        except Exception as exc:  # noqa: BLE001 - never take the pipeline down
+        content = self._post_with_retries(payload)
+        if content is None:
             self.failures += 1
-            log.warning("translation request failed (%s); falling back to source text", exc)
+            log.warning("translation unavailable; showing source text instead")
             return list(texts)
 
         parsed = self._parse(content, list(texts))
@@ -217,6 +217,39 @@ class LLMTranslator(Translator):
             log.warning("could not parse model output: %r", content[:200])
             return list(texts)
         return parsed
+
+    def _post_with_retries(self, payload: dict[str, object]) -> str | None:
+        """Return the message content, or None when every attempt failed.
+
+        The slow tail on hosted LLMs is transient (measured: the same prompt
+        took 0.8 s and 28 s minutes apart), so one retry recovers most of them.
+        We deliberately do not retry 4xx: a bad key or bad model name will
+        never succeed and retrying only doubles the delay.
+        """
+        import httpx
+
+        assert self._client is not None
+        attempts = self._retries + 1
+        for attempt in range(attempts):
+            try:
+                response = self._client.post(f"{self._base_url}/chat/completions", json=payload)
+                response.raise_for_status()
+                return response.json()["choices"][0]["message"]["content"]
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                retryable = status >= 500 or status == 429
+                log.debug("attempt %d/%d failed: HTTP %s", attempt + 1, attempts, status)
+                if not retryable or attempt == attempts - 1:
+                    return None
+            except Exception as exc:  # noqa: BLE001 - timeouts, DNS, bad JSON
+                log.debug("attempt %d/%d failed: %s", attempt + 1, attempts, exc)
+                if attempt == attempts - 1:
+                    return None
+            if self._backoff:
+                import time as _time
+
+                _time.sleep(self._backoff * (attempt + 1))
+        return None
 
     # ------------------------------------------------------------------ parse
     def _parse(self, content: str, fallback: list[str]) -> list[str] | None:

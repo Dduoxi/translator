@@ -118,6 +118,10 @@ class ScreenPipeline:
         self._mailbox: LatestValue[Frame] = LatestValue()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        # Translation runs on its own thread with its own capacity-1 mailbox.
+        # A slow LLM (measured 0.8-28 s for the same prompt) must never block
+        # OCR, or one sluggish request would freeze the subtitle feed entirely.
+        self._translate_mailbox: LatestValue[list] = LatestValue()
         self.stats = PipelineStats()
 
     @classmethod
@@ -150,6 +154,7 @@ class ScreenPipeline:
         self._threads = [
             threading.Thread(target=self._capture_loop, name="fpst-capture", daemon=True),
             threading.Thread(target=self._worker_loop, name="fpst-ocr", daemon=True),
+            threading.Thread(target=self._translate_loop, name="fpst-translate", daemon=True),
         ]
         for thread in self._threads:
             thread.start()
@@ -157,6 +162,7 @@ class ScreenPipeline:
     def stop(self, timeout: float = 3.0) -> None:
         self._stop.set()
         self._mailbox.close()
+        self._translate_mailbox.close()
         for thread in self._threads:
             thread.join(timeout=timeout)
         self._threads = []
@@ -270,6 +276,39 @@ class ScreenPipeline:
                 self.stats.errors += 1
                 log.exception("OCR/translate failed")
 
+    def _translate_loop(self) -> None:
+        while not self._stop.is_set():
+            got = self._translate_mailbox.get(timeout=0.2)
+            if got is None:
+                continue
+            _seq, (regions, frame_ts) = got
+            started = time.perf_counter()
+            try:
+                translated = self._translator.translate(
+                    [r.text for r in regions], self._src_lang, self._dst_lang
+                )
+            except Exception:  # noqa: BLE001
+                self.stats.errors += 1
+                log.exception("translate failed")
+                continue
+            elapsed = (time.perf_counter() - started) * 1000
+            self.stats._tr_ms.append(elapsed)
+
+            for region, dst in zip(regions, translated, strict=False):
+                if not dst:
+                    continue  # model said "nothing to show"
+                self._bus.publish(
+                    Subtitle(
+                        src_text=region.text,
+                        dst_text=dst,
+                        source=Source.SCREEN,
+                        src_lang=region.lang,
+                        ts=region.ts,
+                        confidence=region.confidence,
+                        latency_ms=(time.time() - frame_ts) * 1000 + elapsed,
+                    )
+                )
+
     def _process(self, frame: Frame) -> None:
         started = time.perf_counter()
         regions = self._ocr.recognize(frame)
@@ -292,32 +331,9 @@ class ScreenPipeline:
         if not fresh:
             return
 
-        tr_started = time.perf_counter()
-        try:
-            translated = self._translator.translate(
-                [r.text for r in fresh], self._src_lang, self._dst_lang
-            )
-        except Exception:  # noqa: BLE001
-            self.stats.errors += 1
-            log.exception("translate failed")
-            return
-        tr_elapsed = (time.perf_counter() - tr_started) * 1000
-        self.stats._tr_ms.append(tr_elapsed)
-
-        for region, dst in zip(fresh, translated, strict=False):
-            if not dst:
-                continue
-            self._bus.publish(
-                Subtitle(
-                    src_text=region.text,
-                    dst_text=dst,
-                    source=Source.SCREEN,
-                    src_lang=region.lang,
-                    ts=region.ts,
-                    confidence=region.confidence,
-                    latency_ms=(time.time() - frame.ts) * 1000 + tr_elapsed,
-                )
-            )
+        # Hand off. The translation thread owns the network call so a slow
+        # request can never stall OCR.
+        self._translate_mailbox.put((fresh, frame.ts))
 
 
 def _lang(value: str) -> Lang:
