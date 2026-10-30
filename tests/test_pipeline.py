@@ -650,3 +650,67 @@ def test_bare_player_name_is_not_shown_as_a_subtitle():
     assert _is_bare_name("Echo", "回声") is False, "a real translation must show"
     assert _is_bare_name("need cover", "need cover") is False, "has a space"
     assert _is_bare_name("gg", "gg") is False, "too short to be sure"
+
+
+def test_throttle_is_per_region_not_global():
+    """Regression: one global "last run" timestamp capped throughput at
+    1/min_interval for the *whole* pipeline, so with N regions each one waited
+    N x interval. Measured before the fix: per-region latency quantised to exact
+    multiples of min_interval and a full sweep took ~18 s for 12 regions."""
+    import threading as _threading
+
+    class AlwaysChanged(ScreenSource):
+        name = "always"
+
+        def __init__(self, tag: int) -> None:
+            self.tag = tag
+
+        def open(self) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+        def grab(self) -> Frame | None:
+            img = np.zeros((40, 60, 3), np.uint8)
+            img[0, 0, 0] = self.tag
+            return Frame(image=img)
+
+        @property
+        def size(self) -> tuple[int, int]:
+            return (60, 40)
+
+    class CountingOCR(MockOCREngine):
+        def __init__(self) -> None:
+            super().__init__(lines=["x"])
+            self.per_region: dict[int, int] = {}
+            self._lock = _threading.Lock()
+
+        def recognize(self, frame):
+            tag = int(frame.image[0, 0, 0])
+            with self._lock:
+                self.per_region[tag] = self.per_region.get(tag, 0) + 1
+            self.calls += 1
+            return MockOCREngine(lines=[f"r{tag}"]).recognize(frame)
+
+    regions = 6
+    ocr = CountingOCR()
+    pipeline = ScreenPipeline(
+        [AlwaysChanged(i) for i in range(regions)],
+        ocr,
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        min_interval=0.2,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        time.sleep(2.0)
+    finally:
+        pipeline.stop()
+
+    assert set(ocr.per_region) == set(range(regions)), "some region was starved"
+    # Per-region budgets allow each region ~10 runs in 2 s; a global budget
+    # would allow 10 runs TOTAL, i.e. under 2 per region.
+    assert min(ocr.per_region.values()) >= 3, f"uneven service: {ocr.per_region}"

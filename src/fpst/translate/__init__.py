@@ -76,6 +76,8 @@ def make_translator(cfg: TranslateConfig, api_key: str | None = None) -> Transla
                 key_env=cfg.baidu_key_env,
                 timeout_s=cfg.timeout_s,
                 qps=cfg.baidu_qps,
+                glossary=glossary,
+                glossary_prepass=cfg.baidu_glossary_prepass,
             ),
             maxsize=cfg.cache_size,
             glossary=glossary,

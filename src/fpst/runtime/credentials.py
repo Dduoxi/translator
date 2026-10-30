@@ -159,25 +159,37 @@ def validate_baidu(appid: str, secret: str, transport: object | None = None) -> 
     query = "hello"
     salt = str(random.randint(32768, 65536))
     sign = hashlib.md5((appid + query + salt + secret).encode()).hexdigest()
-    try:
-        with httpx.Client(timeout=15.0, transport=transport) as client:  # type: ignore[arg-type]
-            response = client.post(
-                ENDPOINT,
-                params={
-                    "q": query,
-                    "from": "en",
-                    "to": "zh",
-                    "appid": appid,
-                    "salt": salt,
-                    "sign": sign,
-                },
-            )
-    except Exception as exc:  # noqa: BLE001
-        return False, f"连接失败：{exc}"
+    import time
 
-    if response.status_code != 200:
-        return False, f"HTTP {response.status_code}"
-    payload = response.json()
+    payload: dict = {}
+    response = None
+    # The free tier allows 1 QPS, and configuring credentials usually happens
+    # right after the user tried the service elsewhere, so a single 54003 here
+    # would look like "your key is wrong". Retry once after a pause.
+    for attempt in range(2):
+        try:
+            with httpx.Client(timeout=15.0, transport=transport) as client:  # type: ignore[arg-type]
+                response = client.post(
+                    ENDPOINT,
+                    params={
+                        "q": query,
+                        "from": "en",
+                        "to": "zh",
+                        "appid": appid,
+                        "salt": salt,
+                        "sign": sign,
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001
+            return False, f"连接失败：{exc}"
+
+        if response.status_code != 200:
+            return False, f"HTTP {response.status_code}"
+        payload = response.json()
+        if str(payload.get("error_code", "")) in {"54003", "54005"} and attempt == 0:
+            time.sleep(1.5)
+            continue
+        break
     if "error_code" in payload:
         code = str(payload["error_code"])
         return False, f"错误 {code}：{ERROR_HINTS.get(code, payload.get('error_msg', ''))}"

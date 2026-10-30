@@ -236,6 +236,15 @@ class TranslateConfig:
     """Prefer the environment variables over pasting secrets into this file."""
     baidu_appid_env: str = "FPST_BAIDU_APPID"
     baidu_key_env: str = "FPST_BAIDU_KEY"
+    baidu_glossary_prepass: bool = False
+    """Substitute glossary terms in the *source* before sending to Baidu.
+
+    Baidu has no prompt, so it renders "gank" as the transliteration "甘克" and
+    "B site" as "B网站". Pre-substituting the known terms fixes those, but it
+    also breaks the English sentence structure Baidu parses -- measured:
+    "oom no mana" became the mixed "没蓝了 no 蓝量". Off by default; turn it on
+    if your glossary is mostly short callouts rather than phrases.
+    """
     baidu_qps: float = 1.0
     """Requests per second allowed by your Baidu plan. The free tier is 1; going
     over returns error 54003, so we rate-limit locally instead."""

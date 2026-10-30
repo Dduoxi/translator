@@ -279,26 +279,36 @@ class ScreenPipeline:
             self.stats.errors += 1
             log.exception("OCR warmup failed")
 
-        last_run = 0.0
+        # Throttle recognition per region, not globally.
+        #
+        # A single global "last run" timestamp caps throughput at
+        # 1/min_interval no matter how many ROIs are waiting, so with twelve
+        # regions every one of them waits its turn in a queue: measured
+        # per-region latency was 1x and 2x min_interval, and a full sweep took
+        # N x interval. Each region now has its own deadline, so a quiet region
+        # is recognised immediately while a chatty one still cannot exceed its
+        # own budget.
+        last_ocr: dict[int, float] = {}
         while not self._stop.is_set():
-            got = self._mailbox.get(timeout=0.2)
-            if got is None:
+            now = time.monotonic()
+            pending = self._mailbox.pending_keys()
+            due = [key for key in pending if now - last_ocr.get(key, 0.0) >= self._min_interval]
+
+            if not due:
+                if pending:
+                    soonest = min(last_ocr.get(key, 0.0) + self._min_interval for key in pending)
+                    self._stop.wait(min(0.2, max(0.01, soonest - now)))
+                else:
+                    self._mailbox.wait_for_data(0.2)
                 continue
 
-            # Throttle recognition, not capture.
-            #
-            # We wait first, then keep the item we already hold. An earlier
-            # version swapped it for "whatever is newest" after the wait, which
-            # starved regions under load: with twelve ROIs all changing, the
-            # oldest pending region was dropped on every single pass, so only the
-            # handful that happened to be newest ever got processed.
-            gap = self._min_interval - (time.monotonic() - last_run)
-            if gap > 0 and self._stop.wait(gap):
-                break
-
-            last_run = time.monotonic()
+            key = due[0]
+            frame = self._mailbox.take(key)
+            if frame is None:
+                continue
+            last_ocr[key] = time.monotonic()
             try:
-                self._process(got[0], got[1])
+                self._process(key, frame)
             except Exception:  # noqa: BLE001
                 self.stats.errors += 1
                 log.exception("OCR/translate failed")

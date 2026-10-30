@@ -352,3 +352,35 @@ def test_find_screen_falls_back_to_index_when_origin_is_unknown(app):
     screens = app.screens()
     assert find_screen(None, 0) is screens[0]
     assert find_screen((999999, 999999), 0) is screens[0]
+
+
+def test_settings_preserve_small_floats_exactly(app, cfg_path):
+    """Regression: the spin box had 2 decimals, so min_change_ratio = 0.004 showed
+    as 0.00 and every save from the settings window silently disabled the change
+    gate -- the single biggest CPU optimisation in the product."""
+    from fpst.ui.settings_window import SettingsWindow
+
+    cfg = AppConfig.load(cfg_path)
+    cfg.screen.min_change_ratio = 0.004
+    window = SettingsWindow()
+    try:
+        window.load_config(cfg)
+        out = window.collect_config()
+        assert out.screen.min_change_ratio == 0.004
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize("value", [0.004, 0.012, 0.05])
+def test_small_ratio_survives_the_spinbox(app, cfg_path, value):
+    from fpst.ui.settings_window import SettingsWindow
+
+    cfg = AppConfig.load(cfg_path)
+    cfg.screen.min_change_ratio = value
+    window = SettingsWindow()
+    try:
+        window.load_config(cfg)
+        assert window.performance.min_change.value() == value
+        assert window.collect_config().screen.min_change_ratio == value
+    finally:
+        window.close()

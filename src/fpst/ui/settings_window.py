@@ -54,12 +54,20 @@ ANCHORS = [
 
 
 def _dspin(
-    value: float, lo: float, hi: float, step: float = 0.1, suffix: str = ""
+    value: float,
+    lo: float,
+    hi: float,
+    step: float = 0.1,
+    suffix: str = "",
+    decimals: int = 2,
 ) -> QDoubleSpinBox:
     box = QDoubleSpinBox()
     box.setRange(lo, hi)
     box.setSingleStep(step)
-    box.setDecimals(2)
+    # Decimals must be able to represent the current value: with the default of 2,
+    # min_change_ratio = 0.004 displayed as 0.00 and every save from this window
+    # silently disabled the change gate.
+    box.setDecimals(decimals)
     if suffix:
         box.setSuffix(suffix)
     box.setValue(value)
@@ -398,7 +406,7 @@ class PerformanceTab(_Tab):
         self.min_interval = _dspin(1.5, 0.2, 30.0, 0.1, " s")
         self.threads = _spin(1, 1, 16)
         self.rec_height = _spin(32, 24, 64, " px")
-        self.min_change = _dspin(0.004, 0.0, 0.2, 0.002)
+        self.min_change = _dspin(0.004, 0.0, 0.2, 0.001, decimals=4)
         self.low_priority = QCheckBox("降低进程优先级（游戏优先）")
         self.keep_on_top = QCheckBox("保持置顶（Windows）")
         for widget, title in (

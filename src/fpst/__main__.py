@@ -101,6 +101,11 @@ def cmd_auth(args: argparse.Namespace) -> int:
     cfg = AppConfig.load(args.config)
     tr = cfg.translate
     action = args.action or "status"
+    if getattr(args, "engine", None):
+        # Let the user configure a specific route without editing config.toml
+        # first: with engine="auto" and both providers configured, `auth set`
+        # would otherwise always target whichever one `auto` prefers.
+        tr.engine = args.engine
     engine = resolve_engine(tr)
     print(f"engine   : {tr.engine}  ->  {engine}")
 
@@ -616,6 +621,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_auth.add_argument("action", nargs="?", choices=["status", "set", "clear"], default="status")
     p_auth.add_argument("--config", default=None, help="config file to load")
     p_auth.add_argument("--verify", action="store_true", help="make a real request to check")
+    p_auth.add_argument(
+        "--engine",
+        choices=["auto", "llm", "baidu", "mock"],
+        default=None,
+        help="target a specific translation route instead of the configured one",
+    )
     p_auth.set_defaults(func=cmd_auth)
 
     p_bench = sub.add_parser("bench", help="measure CPU/memory cost against the budget")

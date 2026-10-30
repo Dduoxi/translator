@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import random
+import re
 import threading
 import time
 from collections.abc import Sequence
@@ -83,6 +84,8 @@ class BaiduTranslator(Translator):
         key_env: str = "FPST_BAIDU_KEY",
         timeout_s: float = 8.0,
         qps: float = 1.0,
+        glossary: dict[str, str] | None = None,
+        glossary_prepass: bool = False,
         transport: object | None = None,
         **_ignored: object,
     ) -> None:
@@ -95,6 +98,11 @@ class BaiduTranslator(Translator):
         self._timeout = timeout_s
         self._min_gap = 1.0 / qps if qps > 0 else 0.0
         self._transport = transport
+        # Only used when glossary_prepass is on -- see _prepass_glossary for why
+        # it is opt-in.
+        self._glossary = (
+            {k: v for k, v in (glossary or {}).items() if k and v} if glossary_prepass else {}
+        )
         self._client = None
         self._last_request = 0.0
         self._lock = threading.Lock()
@@ -132,7 +140,9 @@ class BaiduTranslator(Translator):
         # Keep the input/answer alignment: blank lines are dropped from the
         # joined query (they would collapse) and re-inserted afterwards.
         kept: list[tuple[int, str]] = [
-            (i, text.strip().replace("\n", " ")) for i, text in enumerate(texts) if text.strip()
+            (i, self._prepass_glossary(text.strip().replace("\n", " ")))
+            for i, text in enumerate(texts)
+            if text.strip()
         ]
         out = [""] * len(texts)
         if not kept:
@@ -147,6 +157,21 @@ class BaiduTranslator(Translator):
             for (index, text), translated in zip(chunk, results, strict=False):
                 out[index] = translated or text
         return out
+
+    def _prepass_glossary(self, text: str) -> str:
+        """Substitute known game terms with their Chinese rendering *before* sending.
+
+        Baidu has no prompt, so the glossary cannot steer it -- and it renders
+        "B site" as "B网站" and "gank" as the transliteration "甘克". Replacing
+        the term in the source works because the target language is Chinese
+        anyway: Baidu translates what is left and passes the Chinese through.
+        """
+        if not self._glossary:
+            return text
+        for term, replacement in self._glossary.items():
+            pattern = rf"(?<!\w){re.escape(term)}(?!\w)"
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        return text
 
     @staticmethod
     def _chunks(items: list[tuple[int, str]]):

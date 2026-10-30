@@ -55,6 +55,21 @@ class LatestValue(Generic[T]):
             self._has_item = False
             return seq, item  # type: ignore[return-value]
 
+    def pending_keys(self) -> list[K]:
+        """Regions holding an unprocessed frame, oldest first."""
+        with self._cv:
+            return list(self._pending)
+
+    def take(self, key: K) -> V | None:
+        """Remove and return the pending value for one key."""
+        with self._cv:
+            return self._pending.pop(key, None)
+
+    def wait_for_data(self, timeout: float) -> None:
+        """Block until something is pending (or the timeout/close)."""
+        with self._cv:
+            self._cv.wait_for(lambda: bool(self._pending) or self._closed, timeout)
+
     def close(self) -> None:
         with self._cv:
             self._closed = True
@@ -112,6 +127,21 @@ class LatestPerKey(Generic[K, V]):
                 return None
             key = next(iter(self._pending))
             return key, self._pending.pop(key)
+
+    def pending_keys(self) -> list[K]:
+        """Regions holding an unprocessed frame, oldest first."""
+        with self._cv:
+            return list(self._pending)
+
+    def take(self, key: K) -> V | None:
+        """Remove and return the pending value for one key."""
+        with self._cv:
+            return self._pending.pop(key, None)
+
+    def wait_for_data(self, timeout: float) -> None:
+        """Block until something is pending (or the timeout/close)."""
+        with self._cv:
+            self._cv.wait_for(lambda: bool(self._pending) or self._closed, timeout)
 
     def close(self) -> None:
         with self._cv:
