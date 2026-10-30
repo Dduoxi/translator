@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 import fpst.ocr.mock  # noqa: F401 - registers ocr/mock
+import fpst.translate.baidu  # noqa: F401 - registers translate/baidu
 import fpst.translate.mock  # noqa: F401 - registers translate/mock
 
 

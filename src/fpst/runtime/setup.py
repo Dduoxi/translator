@@ -10,7 +10,14 @@ from __future__ import annotations
 import logging
 
 from ..core.config import AppConfig
-from .credentials import MissingApiKey, ensure_api_key, is_local_endpoint, load_api_key, mask
+from .credentials import (
+    MissingApiKey,
+    ensure_credentials,
+    is_local_endpoint,
+    load_api_key,
+    load_baidu,
+    mask,
+)
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +36,21 @@ class SetupResult:
 
 def _step_key(cfg: AppConfig, interactive: bool) -> tuple[bool, str]:
     tr = cfg.translate
+
+    from ..translate import resolve_engine
+
+    if resolve_engine(tr) == "baidu":
+        appid, secret, source = load_baidu(tr)
+        if appid and secret:
+            return True, f"百度翻译凭据已就绪（APPID {appid}，来自 {source}）"
+        if not interactive:
+            return False, "缺少百度翻译 APPID/密钥，且未允许交互输入"
+        try:
+            ensure_credentials(tr, interactive=True, reason="第一步：配置百度翻译凭据。")
+        except MissingApiKey as exc:
+            return False, str(exc)
+        return True, "百度翻译凭据已保存"
+
     if is_local_endpoint(tr.base_url):
         return True, "本地模型，无需密钥"
     key, source = load_api_key(tr)
@@ -37,7 +59,7 @@ def _step_key(cfg: AppConfig, interactive: bool) -> tuple[bool, str]:
     if not interactive:
         return False, "缺少翻译密钥，且未允许交互输入"
     try:
-        ensure_api_key(tr, interactive=True, reason="第一步：配置翻译密钥。")
+        ensure_credentials(tr, interactive=True, reason="第一步：配置翻译密钥。")
     except MissingApiKey as exc:
         return False, str(exc)
     return True, "密钥已保存"

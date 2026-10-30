@@ -59,7 +59,7 @@ def test_key_prompt_is_delegated_to_credentials(cfg, monkeypatch, capsys):
         called["interactive"] = interactive
         return "sk-new"
 
-    monkeypatch.setattr(setup_mod, "ensure_api_key", fake_ensure)
+    monkeypatch.setattr(setup_mod, "ensure_credentials", fake_ensure)
     assert run_setup(cfg, interactive=True).ok
     assert called["interactive"] is True
 
@@ -71,7 +71,7 @@ def test_key_prompt_failure_is_reported(cfg, monkeypatch):
     def boom(*args, **kwargs):
         raise setup_mod.MissingApiKey("拒绝")
 
-    monkeypatch.setattr(setup_mod, "ensure_api_key", boom)
+    monkeypatch.setattr(setup_mod, "ensure_credentials", boom)
     result = run_setup(cfg, interactive=True)
     assert not result.ok
     assert "拒绝" in result.message

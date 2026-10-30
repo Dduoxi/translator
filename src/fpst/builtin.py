@@ -20,6 +20,7 @@ MODULES = [
     "fpst.capture.mss_source",
     "fpst.capture.dxgi",
     "fpst.ocr.rapidocr_engine",
+    "fpst.translate.baidu",
     "fpst.translate.llm",
 ]
 

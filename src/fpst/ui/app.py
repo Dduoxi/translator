@@ -15,7 +15,13 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox, QSystemTrayIcon
 
 from ..core.config import AppConfig, default_config_path
-from ..runtime.credentials import MissingApiKey, ensure_api_key, load_api_key, mask
+from ..runtime.credentials import (
+    MissingApiKey,
+    ensure_api_key,
+    ensure_credentials,
+    load_api_key,
+    mask,
+)
 from .controller import AppController, RunState, StatusPoller
 from .overlay import OverlayController, SubtitleOverlay, create_app
 from .settings_window import SettingsWindow
@@ -27,8 +33,14 @@ __all__ = ["run_app"]
 
 
 def _key_status(cfg: AppConfig) -> str:
-    from ..runtime.credentials import is_local_endpoint
+    from ..runtime.credentials import is_local_endpoint, load_baidu
 
+    if cfg.translate.engine == "baidu" or cfg.translate.engine == "auto":
+        appid, secret, source = load_baidu(cfg.translate)
+        if appid and secret:
+            return f"百度 APPID {appid}（{source}）"
+        if cfg.translate.engine == "baidu":
+            return "百度凭据未配置"
     if is_local_endpoint(cfg.translate.base_url):
         return "本地模型，无需密钥"
     key, source = load_api_key(cfg.translate)
@@ -117,10 +129,10 @@ def run_app(
 
     def set_key() -> None:
         try:
-            ensure_api_key(
+            ensure_credentials(
                 controller.cfg.translate,
                 interactive=True,
-                reason="设置翻译密钥。",
+                reason="设置翻译凭据。",
             )
         except MissingApiKey as exc:
             QMessageBox.warning(window, "密钥设置失败", str(exc))

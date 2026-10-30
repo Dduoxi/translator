@@ -89,21 +89,50 @@ def cmd_auth(args: argparse.Namespace) -> int:
         MissingApiKey,
         clear_api_key,
         ensure_api_key,
+        ensure_baidu,
         is_local_endpoint,
         load_api_key,
+        load_baidu,
         mask,
+        validate_baidu,
     )
+    from .translate import resolve_engine
 
     cfg = AppConfig.load(args.config)
     tr = cfg.translate
+    action = args.action or "status"
+    engine = resolve_engine(tr)
+    print(f"engine   : {tr.engine}  ->  {engine}")
+
+    if engine == "baidu":
+        appid, secret, source = load_baidu(tr)
+        if action == "clear":
+            removed = clear_api_key()
+            print("removed from the credential store" if removed else "nothing stored")
+            return 0
+        if action == "set" or not (appid and secret):
+            try:
+                ensure_baidu(tr, interactive=True, reason="设置百度翻译凭据。")
+            except MissingApiKey as exc:
+                print(f"失败：{exc}")
+                return 1
+            appid, secret, source = load_baidu(tr)
+        print(f"APPID    : {appid or 'MISSING'}  (from {source})")
+        if args.verify and appid and secret:
+            ok, message = validate_baidu(appid, secret)
+            print(f"check    : {message}")
+            return 0 if ok else 1
+        if appid and secret:
+            print("check    : 未校验（加 --verify 实测）")
+            return 0
+        return 1
+
     print(f"endpoint : {tr.base_url}")
     print(f"model    : {tr.model}")
 
     if is_local_endpoint(tr.base_url):
         print("key      : not required (local endpoint)")
         return 0
-
-    action = args.action or "status"
 
     if action == "status":
         key, source = load_api_key(tr)

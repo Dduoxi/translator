@@ -200,10 +200,12 @@ class ASRConfig:
 @dataclass
 class TranslateConfig:
     engine: str = "auto"
-    """auto | llm | mock
+    """auto | llm | baidu | mock
 
-    ``auto`` picks ``llm`` when an API key is discoverable and falls back to
-    ``mock`` (with a warning) otherwise, so a fresh checkout still runs."""
+    ``llm`` (any OpenAI-compatible endpoint) remains the default because it
+    renders game slang far better. ``baidu`` is an alternative route: cheap,
+    domestic and reliable, at the cost of conventional MT quality. ``auto``
+    prefers llm, then baidu, then mock."""
     src_lang: str = "en"
     dst_lang: str = "zh"
     cache_size: int = 1024
@@ -227,6 +229,16 @@ class TranslateConfig:
     "Overwatch. 'ult' = 终极技能. Keep hero names in English: Tracer, Winston."
     "Dota 2. 'tp' = 传送. 'deny' = 反补."
     """
+
+    # --- engine = "baidu": fanyi-api.baidu.com --------------------------------
+    baidu_appid: str = ""
+    baidu_key: str = ""
+    """Prefer the environment variables over pasting secrets into this file."""
+    baidu_appid_env: str = "FPST_BAIDU_APPID"
+    baidu_key_env: str = "FPST_BAIDU_KEY"
+    baidu_qps: float = 1.0
+    """Requests per second allowed by your Baidu plan. The free tier is 1; going
+    over returns error 54003, so we rate-limit locally instead."""
 
     # --- engine = "llm": any OpenAI-compatible chat-completions endpoint -------
     base_url: str = "https://api.deepseek.com/v1"
@@ -258,6 +270,14 @@ class UIConfig:
     font_size: int = 20
     opacity: float = 0.88
     max_lines: int = 4
+    roi_wrap_scale: float = 1.15
+    """When anchored to a ROI, wrap text at ``region width * this`` instead of
+    ``screen width * max_width_ratio``.
+
+    A narrow chat box otherwise gets its translation typeset as one very long
+    line that spills across the screen; wrapping near the box width makes long
+    messages break into several lines under the box they belong to.
+    """
     max_width_ratio: float = 0.62
     anchor: str = "roi-below"
     """Where the subtitle stack sits.

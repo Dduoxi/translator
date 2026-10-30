@@ -128,7 +128,31 @@ export FPST_API_KEY="sk-..."        # Windows: setx FPST_API_KEY "sk-..."
 
 本地模型（Ollama/LM Studio，`localhost`/`127.0.0.1`）**不要求密钥**，自动跳过。
 
-任何 **OpenAI 兼容**端点都能用，只改 `base_url` + `model`：
+### 两路引擎可选
+
+| 引擎 | 优点 | 代价 |
+|---|---|---|
+| `llm`（默认）| 游戏黑话翻得准，术语表能进提示词 | 需要联网调模型，按 token 计费 |
+| `baidu` | 便宜、国内直连、稳定 | 传统机翻，`rush` 会译成"冲"而不是"快攻" |
+
+```toml
+[translate]
+engine = "auto"     # auto 优先 llm，没有 key 时用 baidu；也可写死 "llm" / "baidu"
+
+# --- engine = "baidu" 时用 ---
+baidu_appid = ""            # 建议用环境变量 FPST_BAIDU_APPID
+baidu_key = ""              # 建议用环境变量 FPST_BAIDU_KEY
+baidu_qps = 1.0             # 免费版是 1 QPS，超了会返回 54003
+```
+
+百度凭据同样存进系统凭据管理器：
+
+```bash
+fpst auth set        # 按当前 engine 提示输入（百度要 APPID + 密钥）
+fpst auth --verify   # 实测一次，确认签名正确
+```
+
+**OpenAI 兼容端点**（`engine = "llm"`）只改 `base_url` + `model`：
 
 ```toml
 [translate]

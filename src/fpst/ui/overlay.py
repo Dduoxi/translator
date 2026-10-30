@@ -300,7 +300,6 @@ class SubtitleOverlay(QWidget):
         painter.setFont(self._font)
 
         metrics = QFontMetrics(self._font)
-        wrap_width = max(120, int(self.width() * self._cfg.max_width_ratio))
         gap = max(2, metrics.height() // 3)
 
         # One stack per region: chat subtitles sit under the chat box, kill-feed
@@ -310,6 +309,7 @@ class SubtitleOverlay(QWidget):
             groups.setdefault(line.region, []).append((line, age))
 
         for region in sorted(groups):
+            wrap_width = self._wrap_width(region)
             entries = groups[region][-self._cfg.max_lines :]
             blocks: list[tuple[_Line, float, int, int]] = []
             for line, age in entries:
@@ -334,6 +334,19 @@ class SubtitleOverlay(QWidget):
                 drift = self._slide_offset(now - line.born)
                 self._draw_block(painter, line, alpha, x, y + drift, width, height, wrap_width)
                 y += height + gap
+
+    def _wrap_width(self, region: int) -> int:
+        """Text wrap width for one region's stack.
+
+        ROI anchors wrap near the region's own width so a long message breaks
+        into several lines under the box it came from; screen anchors keep the
+        classic wide subtitle line.
+        """
+        if self._cfg.anchor.lower().startswith("roi"):
+            roi = self._roi_pixels(region)
+            if roi is not None:
+                return max(90, int(roi.width() * self._cfg.roi_wrap_scale))
+        return max(120, int(self.width() * self._cfg.max_width_ratio))
 
     def _render_text(self, line: _Line) -> str:
         if self._cfg.show_source_text and line.source_text:

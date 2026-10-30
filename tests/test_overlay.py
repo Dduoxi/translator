@@ -10,7 +10,7 @@ pytest.importorskip("PySide6")
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QCoreApplication  # noqa: E402
+from PySide6.QtCore import QCoreApplication, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from fpst.core.bus import EventBus  # noqa: E402
@@ -367,5 +367,81 @@ def test_left_anchor_is_not_centred(app):
         left, _top, centre_x = widget._anchor_box(40)
         assert centre_x is None
         assert left == cfg.margin_px
+    finally:
+        widget.close()
+
+
+# ------------------------------------------------------- accumulation + wrap
+
+
+def test_five_lines_accumulate_and_the_oldest_is_pushed_out(app):
+    """A quick exchange should stay readable instead of flashing one bubble."""
+    cfg = _cfg(max_lines=5, line_ttl=30.0)
+    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.1, 0.2, 0.08, 0.09)])
+    widget.setGeometry(0, 0, 1680, 1050)
+    try:
+        for i in range(7):
+            widget.add_subtitle(_sub(f"line {i}"))
+        alive = widget._alive(time.monotonic())
+        assert [line.text for line, _ in alive] == [f"line {i}" for i in range(2, 7)]
+    finally:
+        widget.close()
+
+
+def test_previous_line_survives_a_new_one(app):
+    cfg = _cfg(max_lines=5, line_ttl=30.0)
+    widget = SubtitleOverlay(cfg, monitor=1)
+    try:
+        widget.add_subtitle(_sub("first"))
+        widget.add_subtitle(_sub("second"))
+        texts = [line.text for line, _ in widget._alive(time.monotonic())]
+        assert texts == ["first", "second"], "the older line must not be replaced"
+    finally:
+        widget.close()
+
+
+def test_long_line_wraps_at_the_region_width(app):
+    """A narrow chat box must break long text into several lines, not typeset it
+    as one very wide row across the screen."""
+    cfg = _cfg(anchor="roi-below", roi_wrap_scale=1.15, max_width_ratio=0.62)
+    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.10, 0.20, 0.0786, 0.0876)])
+    widget.setGeometry(0, 0, 1680, 1050)
+    try:
+        region_wrap = widget._wrap_width(0)
+        assert region_wrap == pytest.approx(132 * 1.15, abs=2)
+        screen_wrap = int(1680 * 0.62)
+        assert region_wrap < screen_wrap / 3, "region wrap must be far narrower"
+    finally:
+        widget.close()
+
+
+def test_screen_anchors_keep_the_wide_wrap(app):
+    cfg = _cfg(anchor="bottom-center", max_width_ratio=0.62)
+    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.1, 0.2, 0.08, 0.09)])
+    widget.setGeometry(0, 0, 1000, 800)
+    try:
+        assert widget._wrap_width(0) == int(1000 * 0.62)
+    finally:
+        widget.close()
+
+
+def test_wrapped_line_is_taller_than_a_single_row(app):
+    """The wrap actually happens when painting, not just in the width maths."""
+    cfg = _cfg(anchor="roi-below", max_lines=5, line_ttl=30.0)
+    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.10, 0.20, 0.0786, 0.0876)])
+    widget.setGeometry(0, 0, 1680, 1050)
+    try:
+        widget.add_subtitle(_sub("need cover reloading"))
+        widget._lines[0].born = time.monotonic() - 2.0
+        from PySide6.QtCore import QRect
+        from PySide6.QtGui import QFontMetrics
+
+        one_row = QFontMetrics(widget._font).height()
+        rect = QFontMetrics(widget._font).boundingRect(
+            QRect(0, 0, widget._wrap_width(0), 10_000),
+            Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
+            "need cover reloading",
+        )
+        assert rect.height() >= one_row * 2, "long text should occupy several rows"
     finally:
         widget.close()

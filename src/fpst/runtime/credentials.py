@@ -30,6 +30,11 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "SERVICE_NAME",
+    "ensure_baidu",
+    "ensure_credentials",
+    "load_baidu",
+    "save_baidu",
+    "validate_baidu",
     "load_api_key",
     "save_api_key",
     "clear_api_key",
@@ -42,6 +47,8 @@ __all__ = [
 
 SERVICE_NAME = "fps-translator"
 _ACCOUNT = "api_key"
+_BAIDU_APPID = "baidu_appid"
+_BAIDU_KEY = "baidu_key"
 
 
 class MissingApiKey(RuntimeError):
@@ -97,6 +104,144 @@ def save_api_key(key: str) -> str:
         except Exception as exc:  # noqa: BLE001
             log.warning("could not write to the credential store: %s", exc)
     return "config"
+
+
+# ----------------------------------------------------------------- baidu keys
+
+
+def load_baidu(cfg: TranslateConfig) -> tuple[str, str, str]:
+    """Return ``(appid, secret, source)`` for Baidu Translate."""
+    appid = os.environ.get(cfg.baidu_appid_env, "").strip() or cfg.baidu_appid.strip()
+    secret = os.environ.get(cfg.baidu_key_env, "").strip() or cfg.baidu_key.strip()
+    source = "env" if os.environ.get(cfg.baidu_appid_env, "").strip() else "config"
+
+    if not (appid and secret):
+        store = _keyring()
+        if store is not None:
+            try:
+                stored_id = store.get_password(SERVICE_NAME, _BAIDU_APPID)
+                stored_key = store.get_password(SERVICE_NAME, _BAIDU_KEY)
+            except Exception as exc:  # noqa: BLE001
+                log.debug("credential store read failed: %s", exc)
+                stored_id = stored_key = None
+            if stored_id and stored_key:
+                return stored_id.strip(), stored_key.strip(), "keyring"
+    if appid and secret:
+        return appid, secret, source
+    return "", "", "none"
+
+
+def save_baidu(appid: str, secret: str) -> str:
+    store = _keyring()
+    if store is not None:
+        try:
+            store.set_password(SERVICE_NAME, _BAIDU_APPID, appid.strip())
+            store.set_password(SERVICE_NAME, _BAIDU_KEY, secret.strip())
+            return "keyring"
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not write Baidu credentials to the keyring: %s", exc)
+    return "config"
+
+
+def validate_baidu(appid: str, secret: str, transport: object | None = None) -> tuple[bool, str]:
+    """Translate one short word to prove the appid/secret pair is valid.
+
+    Baidu signs every request, so a wrong secret fails immediately with 54001 --
+    far better than discovering it at the first subtitle.
+    """
+    import hashlib
+    import random
+
+    import httpx
+
+    from ..translate.baidu import ENDPOINT, ERROR_HINTS
+
+    query = "hello"
+    salt = str(random.randint(32768, 65536))
+    sign = hashlib.md5((appid + query + salt + secret).encode()).hexdigest()
+    try:
+        with httpx.Client(timeout=15.0, transport=transport) as client:  # type: ignore[arg-type]
+            response = client.post(
+                ENDPOINT,
+                params={
+                    "q": query,
+                    "from": "en",
+                    "to": "zh",
+                    "appid": appid,
+                    "salt": salt,
+                    "sign": sign,
+                },
+            )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"连接失败：{exc}"
+
+    if response.status_code != 200:
+        return False, f"HTTP {response.status_code}"
+    payload = response.json()
+    if "error_code" in payload:
+        code = str(payload["error_code"])
+        return False, f"错误 {code}：{ERROR_HINTS.get(code, payload.get('error_msg', ''))}"
+    results = payload.get("trans_result") or []
+    if not results:
+        return False, "返回为空，请检查 appid/密钥"
+    return True, f"验证通过（hello → {results[0].get('dst', '')}）"
+
+
+def ensure_baidu(
+    cfg: TranslateConfig, *, interactive: bool = True, reason: str = ""
+) -> tuple[str, str]:
+    """Return a usable ``(appid, secret)``, prompting on first run."""
+    appid, secret, source = load_baidu(cfg)
+    if appid and secret:
+        if source == "config":
+            log.warning(
+                "Baidu credentials read from config.toml (plaintext). "
+                "Prefer `fpst auth set` to store them in the OS credential store."
+            )
+        return appid, secret
+
+    if not interactive:
+        raise MissingApiKey(
+            f"未找到百度翻译凭据。请设置 {cfg.baidu_appid_env} / {cfg.baidu_key_env}，"
+            "或运行 `fpst auth set`。"
+        )
+
+    print()
+    print("需要百度翻译 API 凭据（https://fanyi-api.baidu.com/manage/developer）")
+    if reason:
+        print(reason)
+    try:
+        typed_id = input("APPID: ").strip()
+        typed_key = getpass.getpass("密钥（输入不回显）: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        raise MissingApiKey("已取消") from None
+    if not typed_id or not typed_key:
+        raise MissingApiKey("APPID 或密钥为空")
+
+    ok, message = validate_baidu(typed_id, typed_key)
+    if not ok:
+        raise MissingApiKey(f"凭据校验失败：{message}")
+
+    method = save_baidu(typed_id, typed_key)
+    if method == "keyring":
+        print(f"已保存到系统凭据管理器（APPID {typed_id}）")
+    else:
+        print("系统凭据管理器不可用，凭据将写入 config.toml。")
+        cfg.baidu_appid = typed_id
+        cfg.baidu_key = typed_key
+    return typed_id, typed_key
+
+
+def ensure_credentials(cfg: TranslateConfig, *, interactive: bool = True, reason: str = "") -> str:
+    """Ask for whatever the configured engine needs. Returns the engine used."""
+    from ..translate import resolve_engine
+
+    engine = resolve_engine(cfg)
+    if engine == "baidu":
+        ensure_baidu(cfg, interactive=interactive, reason=reason)
+    elif engine in ("llm", "openai", "deepseek", "ollama", "kimi", "qwen"):
+        ensure_api_key(cfg, interactive=interactive, reason=reason)
+    return engine
 
 
 def clear_api_key() -> bool:
