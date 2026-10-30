@@ -57,6 +57,13 @@ class PipelineStats:
     lines_new: int = 0
     errors: int = 0
     idle: bool = False
+    frames_empty: int = 0
+    """Grabs that returned nothing.
+
+    A backend can be "working" and still hand back None every time: Desktop
+    Duplication produces no frame while the screen is static. That is completely
+    different from the change gate rejecting a frame, and the two need separate
+    counters or the status panel cannot say which is happening."""
     frames_attempted: int = 0
     """Every grab() call, including the ones the change gate rejected.
 
@@ -253,6 +260,8 @@ class ScreenPipeline:
                         log.exception("grab failed for region %d", index)
                         continue
 
+                    if frame is None:
+                        self.stats.frames_empty += 1
                     if frame is not None:
                         self.stats.frames_grabbed += 1
                         self.stats.frames_changed += 1

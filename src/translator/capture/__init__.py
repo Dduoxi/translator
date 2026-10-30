@@ -13,7 +13,6 @@ simple -- a twitch in the kill feed no longer re-OCRs the chat box.
 from __future__ import annotations
 
 import logging
-import sys
 
 from ..core.config import ScreenConfig
 from ..core.interfaces import ScreenSource
@@ -24,7 +23,15 @@ __all__ = ["make_screen_sources", "make_screen_source", "ChangedOnly", "describe
 
 log = logging.getLogger(__name__)
 
-PLATFORM_DEFAULT = "dxgi" if sys.platform == "win32" else "mss"
+PLATFORM_DEFAULT = "mss"
+"""mss on every platform, including Windows.
+
+dxgi (Desktop Duplication) is cheaper per grab, but it only produces a frame when
+the desktop image actually changes. On a static screen it returns None forever --
+including the very first grab -- so the pipeline never gets a frame to OCR and the
+app looks broken. For small ROIs mss costs ~2-3 ms, which is a price worth paying
+for "it always returns a picture". Set [screen] engine = "dxgi" to opt in.
+"""
 
 
 def _build_one(cfg: ScreenConfig, region: tuple[float, float, float, float] | None) -> ScreenSource:

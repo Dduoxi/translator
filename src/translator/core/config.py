@@ -107,7 +107,11 @@ def default_config_path() -> Path:
 @dataclass
 class ScreenConfig:
     engine: str = "auto"
-    """auto | mss | dxgi"""
+    """auto | mss | dxgi
+
+    ``auto`` means mss everywhere, including Windows: DXGI only yields a frame
+    when the screen changes, so a static screen starves the pipeline. Choose
+    ``dxgi`` explicitly if you want the cheaper path and accept that."""
     monitor: int = 1
     """1-based monitor index. Kept for compatibility, but do not trust it alone:
     mss counts a virtual 'all displays' entry first while Qt does not, so the

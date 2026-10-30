@@ -164,6 +164,7 @@ class AppController(QObject):
                 {
                     "frames": stats.frames_grabbed,
                     "frames_attempted": stats.frames_attempted,
+                    "frames_empty": stats.frames_empty,
                     "ocr_runs": stats.ocr_runs,
                     "ocr_ms": stats.ocr_ms,
                     "translate_ms": stats.translate_ms,

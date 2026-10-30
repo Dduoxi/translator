@@ -66,6 +66,7 @@ class DxgiSource(ScreenSource):
             raise RegistryError("DXGI capture needs bettercam (uv pip install bettercam)") from exc
         self._backend = None
         self._backend_name = ""
+        self._warned_empty = False
         self._camera = None
         self._offset = (0, 0)
         self._size = (0, 0)
@@ -133,7 +134,14 @@ class DxgiSource(ScreenSource):
         assert self._camera is not None
         image = self._camera.grab()
         if image is None:
-            return None  # Desktop Duplication timed out -> nothing changed
+            if not self._warned_empty:
+                self._warned_empty = True
+                log.warning(
+                    "DXGI returned no frame (the desktop has not changed). This is "
+                    "normal for Desktop Duplication on a static screen; if it never "
+                    "produces one, switch [screen] engine to 'mss'."
+                )
+            return None
         if not isinstance(image, np.ndarray):
             return None
         return Frame(image=image, monitor=self._monitor_index, offset=self._offset)

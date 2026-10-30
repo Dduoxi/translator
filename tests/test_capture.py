@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from translator.capture.gate import ChangedOnly
+from translator.core.bus import EventBus
 from translator.core.interfaces import ScreenSource
 from translator.core.types import Frame
 
@@ -234,3 +235,66 @@ def test_dxgi_registration_is_probed_at_construction():
 
     with pytest.raises(RegistryError, match="bettercam"):
         DxgiSource()
+
+
+def test_platform_default_is_mss_even_on_windows():
+    """DXGI only yields a frame when the screen changes, so a static screen
+    starves the pipeline -- including the first frame. mss always returns one."""
+    from translator.capture import PLATFORM_DEFAULT
+
+    assert PLATFORM_DEFAULT == "mss"
+
+
+def test_auto_resolves_to_mss():
+    from translator.capture import make_screen_source
+    from translator.core.config import ScreenConfig
+
+    source = make_screen_source(ScreenConfig(engine="auto"))
+    inner = getattr(source, "_inner", source)
+    assert type(inner).__name__ == "MssSource"
+
+
+def test_empty_frames_are_counted_separately():
+    """A backend handing back None forever must not be reported as "no change"."""
+    import time
+
+    from translator.core.interfaces import ScreenSource
+    from translator.ocr.mock import MockOCREngine
+    from translator.pipeline import ScreenPipeline
+    from translator.translate.mock import MockTranslator
+
+    class AlwaysEmpty(ScreenSource):
+        name = "empty"
+
+        def open(self):
+            pass
+
+        def close(self):
+            pass
+
+        def grab(self) -> Frame | None:
+            return None
+
+        @property
+        def size(self):
+            return (10, 10)
+
+    pipeline = ScreenPipeline(
+        AlwaysEmpty(),
+        MockOCREngine(lines=["x"]),
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline and pipeline.stats.frames_empty < 5:
+            time.sleep(0.01)
+    finally:
+        pipeline.stop()
+
+    assert pipeline.stats.frames_empty >= 5
+    assert pipeline.stats.frames_grabbed == 0
+    assert pipeline.stats.frames_attempted == pipeline.stats.frames_empty

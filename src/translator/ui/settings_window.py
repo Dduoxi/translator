@@ -490,7 +490,8 @@ class StatusTab(_Tab):
             f"扫描区域：{snap.get('regions')} 个",
             f"模型：{snap.get('model')}",
             "",
-            f"抓屏次数：{snap.get('frames_attempted', '—')}",
+            f"抓屏次数：{snap.get('frames_attempted', '—')}  "
+            f"（其中空帧 {snap.get('frames_empty', '—')}）",
             f"通过变化门控：{snap.get('frames', '—')}",
             f"OCR 次数：{snap.get('ocr_runs', '—')}",
             f"OCR 平均耗时：{snap.get('ocr_ms', 0):.0f} ms",
@@ -514,6 +515,7 @@ class StatusTab(_Tab):
         # app is broken or the screen simply is not changing.
         if snap.get("state") == "running":
             attempted = snap.get("frames_attempted") or 0
+            empty = snap.get("frames_empty") or 0
             gated = snap.get("frames") or 0
             ocr = snap.get("ocr_runs") or 0
             if attempted == 0:
@@ -521,10 +523,21 @@ class StatusTab(_Tab):
                     "",
                     "⚠ 还没抓到任何画面：抓屏可能失败（看下方错误），或选中的区域不在当前屏幕上。",
                 ]
+            elif empty and empty == attempted:
+                # A backend can hand back None forever -- Desktop Duplication does
+                # exactly that while the screen is static. Saying "no change" here
+                # would be a lie and sends people looking in the wrong place.
+                rows += [
+                    "",
+                    "⚠ 抓屏后端一直返回空帧（没有拿到任何画面）。",
+                    "   当前引擎是 dxgi 时，这是桌面复制在画面静止时的正常行为，"
+                    "但连第一帧都拿不到就没法开始翻译。",
+                    "   解决：把性能页/配置里的 screen.engine 改成 mss。",
+                ]
             elif gated == 0:
                 rows += [
                     "",
-                    "⚠ 抓到了画面，但都判定为「没有变化」，所以没跑 OCR。"
+                    "⚠ 收到了画面，但都判定为「没有变化」，所以没跑 OCR。"
                     "\n   选区内没有文字变化，或变化幅度低于阈值（性能页的「变化阈值」）。",
                 ]
             elif ocr == 0:
