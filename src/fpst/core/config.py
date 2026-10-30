@@ -279,15 +279,9 @@ class UIConfig:
     font_size: int = 20
     opacity: float = 0.88
     max_lines: int = 4
-    roi_wrap_scale: float = 1.15
-    """When anchored to a ROI, wrap text at ``region width * this`` instead of
-    ``screen width * max_width_ratio``.
-
-    A narrow chat box otherwise gets its translation typeset as one very long
-    line that spills across the screen; wrapping near the box width makes long
-    messages break into several lines under the box they belong to.
-    """
     max_width_ratio: float = 0.62
+    """Widest a subtitle may get, as a fraction of the screen. Subtitles are
+    always a single line; anything longer is elided rather than wrapped."""
     anchor: str = "roi-below"
     """Where the subtitle stack sits.
 

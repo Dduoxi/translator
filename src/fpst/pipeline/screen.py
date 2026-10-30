@@ -37,6 +37,11 @@ from ..core.types import Frame, Lang, Source, Subtitle
 
 log = logging.getLogger(__name__)
 
+_MAX_LINES_PER_REQUEST = 40
+"""Cap on lines sent in one translation request. More than this and the tail is
+pushed back to the mailbox for the next round, keeping request size (and cost)
+predictable however many regions are configured."""
+
 __all__ = ["ScreenPipeline", "PipelineStats"]
 
 
@@ -314,15 +319,45 @@ class ScreenPipeline:
                 log.exception("OCR/translate failed")
 
     def _translate_loop(self) -> None:
+        """Translate every pending region in one request.
+
+        Per-region requests serialise badly: twelve chat boxes meant twelve
+        round trips, so the last region waited ~9 s for its first subtitle while
+        the first appeared immediately. Our Translator is already a batch
+        interface, so draining all pending regions into a single call collapses
+        that to one round trip (and costs less, which matters for Baidu's 1 QPS).
+        """
         while not self._stop.is_set():
-            got = self._translate_mailbox.get(timeout=0.2)
-            if got is None:
+            batches: list[tuple[int, list]] = []
+            while True:
+                got = self._translate_mailbox.get(timeout=0.15 if not batches else 0)
+                if got is None:
+                    break
+                batches.append(got)
+            if not batches:
                 continue
-            region_index, items = got
+
+            # One flat list across regions; results map back by position.
+            items: list[tuple[int, object, float]] = []
+            for region_index, region_items in batches:
+                for region, frame_ts in region_items:
+                    items.append((region_index, region, frame_ts))
+
+            overflow = items[_MAX_LINES_PER_REQUEST:]
+            if overflow:
+                # Put the tail back for the next round rather than growing the
+                # request without bound.
+                by_region: dict[int, list] = {}
+                for region_index, region, frame_ts in overflow:
+                    by_region.setdefault(region_index, []).append((region, frame_ts))
+                for region_index, region_items in by_region.items():
+                    self._translate_mailbox.extend(region_index, region_items)
+                items = items[:_MAX_LINES_PER_REQUEST]
+
             started = time.perf_counter()
             try:
                 translated = self._translator.translate(
-                    [region.text for region, _ in items], self._src_lang, self._dst_lang
+                    [region.text for _, region, _ in items], self._src_lang, self._dst_lang
                 )
             except Exception:  # noqa: BLE001
                 self.stats.errors += 1
@@ -331,7 +366,7 @@ class ScreenPipeline:
             elapsed = (time.perf_counter() - started) * 1000
             self.stats._tr_ms.append(elapsed)
 
-            for (region, frame_ts), dst in zip(items, translated, strict=False):
+            for (region_index, region, frame_ts), dst in zip(items, translated, strict=False):
                 if not dst:
                     continue  # model said "nothing to show"
                 if _is_bare_name(region.text, dst):

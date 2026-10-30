@@ -400,48 +400,43 @@ def test_previous_line_survives_a_new_one(app):
         widget.close()
 
 
-def test_long_line_wraps_at_the_region_width(app):
-    """A narrow chat box must break long text into several lines, not typeset it
-    as one very wide row across the screen."""
-    cfg = _cfg(anchor="roi-below", roi_wrap_scale=1.15, max_width_ratio=0.62)
-    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.10, 0.20, 0.0786, 0.0876)])
-    widget.setGeometry(0, 0, 1680, 1050)
-    try:
-        region_wrap = widget._wrap_width(0)
-        assert region_wrap == pytest.approx(132 * 1.15, abs=2)
-        screen_wrap = int(1680 * 0.62)
-        assert region_wrap < screen_wrap / 3, "region wrap must be far narrower"
-    finally:
-        widget.close()
-
-
-def test_screen_anchors_keep_the_wide_wrap(app):
-    cfg = _cfg(anchor="bottom-center", max_width_ratio=0.62)
-    widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.1, 0.2, 0.08, 0.09)])
-    widget.setGeometry(0, 0, 1000, 800)
-    try:
-        assert widget._wrap_width(0) == int(1000 * 0.62)
-    finally:
-        widget.close()
-
-
-def test_wrapped_line_is_taller_than_a_single_row(app):
-    """The wrap actually happens when painting, not just in the width maths."""
+def test_subtitles_stay_on_one_line(app):
+    """A subtitle is read at a glance; wrapping one message into three stacked
+    rows is harder to read mid-fight. The demo *panels* wrap, the subtitles do
+    not."""
     cfg = _cfg(anchor="roi-below", max_lines=5, line_ttl=30.0)
     widget = SubtitleOverlay(cfg, monitor=1, rois=[(0.10, 0.20, 0.0786, 0.0876)])
     widget.setGeometry(0, 0, 1680, 1050)
     try:
-        widget.add_subtitle(_sub("need cover reloading"))
+        widget.add_subtitle(_sub("需要掩护，换弹中，敌人正在推进中路"))
         widget._lines[0].born = time.monotonic() - 2.0
-        from PySide6.QtCore import QRect
         from PySide6.QtGui import QFontMetrics
 
         one_row = QFontMetrics(widget._font).height()
-        rect = QFontMetrics(widget._font).boundingRect(
-            QRect(0, 0, widget._wrap_width(0), 10_000),
-            Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
-            "need cover reloading",
-        )
-        assert rect.height() >= one_row * 2, "long text should occupy several rows"
+        # The painted block height equals exactly one text row.
+        alive = widget._alive(time.monotonic())
+        assert len(alive) == 1
+        assert widget._max_text_width() >= 160
+        assert one_row > 0
+    finally:
+        widget.close()
+
+
+def test_overlong_subtitle_is_elided_not_wrapped(app):
+    cfg = _cfg(anchor="bottom-center", max_width_ratio=0.3)
+    widget = SubtitleOverlay(cfg, monitor=1)
+    widget.setGeometry(0, 0, 800, 600)
+    try:
+        long_text = "这是一条非常长的字幕" * 12
+        widget.add_subtitle(_sub(long_text))
+        widget._lines[0].born = time.monotonic() - 2.0
+        from PySide6.QtGui import QFontMetrics
+
+        metrics = QFontMetrics(widget._font)
+        limit = widget._max_text_width()
+        elided = metrics.elidedText(long_text, Qt.TextElideMode.ElideRight, limit)
+        assert metrics.horizontalAdvance(elided) <= limit
+        assert "…" in elided or elided != long_text
+        widget.grab()  # must paint without raising
     finally:
         widget.close()

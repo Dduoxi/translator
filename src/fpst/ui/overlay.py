@@ -308,17 +308,25 @@ class SubtitleOverlay(QWidget):
         for line, age in alive:
             groups.setdefault(line.region, []).append((line, age))
 
+        max_text_width = self._max_text_width()
         for region in sorted(groups):
-            wrap_width = self._wrap_width(region)
             entries = groups[region][-self._cfg.max_lines :]
             blocks: list[tuple[_Line, float, int, int]] = []
             for line, age in entries:
-                rect = metrics.boundingRect(
-                    QRect(0, 0, wrap_width, 10_000),
-                    Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter,
-                    self._render_text(line),
-                )
-                blocks.append((line, self._alpha(age), rect.width(), rect.height()))
+                text = self._render_text(line)
+                width = metrics.horizontalAdvance(text)
+                if width > max_text_width:
+                    text = metrics.elidedText(text, Qt.TextElideMode.ElideRight, max_text_width)
+                    line = _Line(
+                        text=text,
+                        source_text=line.source_text,
+                        color=line.color,
+                        born=line.born,
+                        latency_ms=line.latency_ms,
+                        region=line.region,
+                    )
+                    width = metrics.horizontalAdvance(text)
+                blocks.append((line, self._alpha(age), width, metrics.height()))
             if not blocks:
                 continue
 
@@ -332,21 +340,17 @@ class SubtitleOverlay(QWidget):
                     x = centre_x - width // 2
                     x = max(8, min(x, self.width() - width - 8))
                 drift = self._slide_offset(now - line.born)
-                self._draw_block(painter, line, alpha, x, y + drift, width, height, wrap_width)
+                self._draw_block(painter, line, alpha, x, y + drift, width, height)
                 y += height + gap
 
-    def _wrap_width(self, region: int) -> int:
-        """Text wrap width for one region's stack.
+    def _max_text_width(self) -> int:
+        """Widest a subtitle may render before it is elided.
 
-        ROI anchors wrap near the region's own width so a long message breaks
-        into several lines under the box it came from; screen anchors keep the
-        classic wide subtitle line.
+        Subtitles stay on one line: a chat line is short and reading it should
+        take a single glance. Wrapping them under a narrow chat box turned one
+        message into three stacked rows, which is harder to read mid-fight.
         """
-        if self._cfg.anchor.lower().startswith("roi"):
-            roi = self._roi_pixels(region)
-            if roi is not None:
-                return max(90, int(roi.width() * self._cfg.roi_wrap_scale))
-        return max(120, int(self.width() * self._cfg.max_width_ratio))
+        return max(160, int(self.width() * self._cfg.max_width_ratio))
 
     def _render_text(self, line: _Line) -> str:
         if self._cfg.show_source_text and line.source_text:
@@ -421,10 +425,9 @@ class SubtitleOverlay(QWidget):
         y: int,
         width: int,
         height: int,
-        wrap_width: int,
     ) -> None:
         text = self._render_text(line)
-        flags = Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignHCenter
+        flags = Qt.TextFlag.TextSingleLine | Qt.AlignmentFlag.AlignHCenter
 
         if self._cfg.background:
             panel = QColor(0, 0, 0, int(self._cfg.background_opacity * 255 * alpha))
