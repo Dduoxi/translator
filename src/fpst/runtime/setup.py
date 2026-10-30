@@ -62,6 +62,7 @@ def _step_regions(cfg: AppConfig, monitor: int, interactive: bool) -> tuple[bool
     cfg.screen.regions = [r.fractions for r in picked]
     cfg.screen.region = None
     cfg.screen.monitor = picked[0].monitor
+    cfg.screen.monitor_origin = picked[0].monitor_origin
     return True, f"已保存 {len(picked)} 个区域"
 
 

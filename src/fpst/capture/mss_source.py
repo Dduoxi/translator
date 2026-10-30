@@ -26,9 +26,11 @@ class MssSource(ScreenSource):
         self,
         monitor: int = 1,
         region: tuple[float, float, float, float] | None = None,
+        monitor_origin: tuple[int, int] | None = None,
         **_ignored: object,
     ) -> None:
         self._monitor_index = monitor
+        self._monitor_origin = monitor_origin
         self._region_rel = region
         self._sct = None
         self._bbox: dict[str, int] = {}
@@ -45,6 +47,8 @@ class MssSource(ScreenSource):
         monitors = self._sct.monitors
         # monitors[0] is the union of all displays; 1..n are physical monitors.
         index = max(1, min(int(self._monitor_index), len(monitors) - 1))
+        if self._monitor_origin is not None:
+            index = self._match_by_origin(monitors, self._monitor_origin, index)
         mon = monitors[index]
         left, top, width, height = (int(mon[k]) for k in ("left", "top", "width", "height"))
 
@@ -61,6 +65,21 @@ class MssSource(ScreenSource):
 
         self._offset = (self._bbox["left"], self._bbox["top"])
         self._size = (self._bbox["width"], self._bbox["height"])
+
+    @staticmethod
+    def _match_by_origin(
+        monitors: list[dict[str, int]], origin: tuple[int, int], fallback: int
+    ) -> int:
+        """Find the mss monitor whose top-left matches the picked screen.
+
+        mss inserts the all-displays union at index 0 while Qt does not, so index
+        i in one library is not index i in the other. Position is unambiguous.
+        """
+        want_x, want_y = origin
+        for i in range(1, len(monitors)):
+            if int(monitors[i]["left"]) == want_x and int(monitors[i]["top"]) == want_y:
+                return i
+        return fallback
 
     def close(self) -> None:
         if self._sct is not None:

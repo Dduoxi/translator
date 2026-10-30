@@ -49,6 +49,9 @@ FONT_STACK = [
 _TICK_MS = 100
 """Repaint cadence while subtitles are on screen (10 Hz, for the fade)."""
 
+_RAISE_MS = 1200
+"""How often to re-assert our topmost position (see UIConfig.keep_on_top)."""
+
 
 @dataclass
 class _Line:
@@ -122,6 +125,12 @@ class SubtitleOverlay(QWidget):
         self._timer.setInterval(_TICK_MS)
         self._timer.timeout.connect(self._tick)
 
+        self._on_top_timer: QTimer | None = None
+        if cfg.keep_on_top:
+            self._on_top_timer = QTimer(self)
+            self._on_top_timer.setInterval(_RAISE_MS)
+            self._on_top_timer.timeout.connect(self._reassert_top)
+
     # ------------------------------------------------------------------ setup
     @staticmethod
     def _pick_screen(monitor: int):
@@ -148,6 +157,68 @@ class SubtitleOverlay(QWidget):
         log.info(
             "overlay shown on %dx%d, capture affinity=%s", self.width(), self.height(), affinity
         )
+        if self._on_top_timer is not None and not self._on_top_timer.isActive():
+            self._on_top_timer.start()
+
+    def _reassert_top(self) -> None:
+        """Win the stacking fight against the game or other overlays.
+
+        A window that asks to be topmost does not stay topmost: the game, Steam's
+        overlay or Discord can raise themselves above us afterwards and the
+        subtitles vanish behind them.
+
+        Note the platform split. Qt's ``raise_()`` looks equivalent but is not:
+        on X11 a topmost Tool window that gets raised is re-stacked into the
+        *normal* layer by the WM, so calling it actually pushed our subtitles
+        behind other topmost windows (measured: subtitles disappeared entirely
+        with the timer on, reappeared the moment it was disabled). On Windows we
+        instead re-assert WS_EX_TOPMOST directly, which does not remap the window
+        and costs nothing.
+        """
+        if not self.isVisible():
+            return
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+
+            HWND_TOPMOST = -1
+            SWP_NOMOVE = 0x0002
+            SWP_NOSIZE = 0x0001
+            SWP_NOACTIVATE = 0x0010
+            ctypes.windll.user32.SetWindowPos(  # type: ignore[attr-defined]
+                int(self.winId()),
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug("could not re-assert topmost: %s", exc)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        if self._on_top_timer is not None:
+            self._on_top_timer.stop()
+        super().hideEvent(event)
+
+    # ----------------------------------------------------------------- config
+    def apply_config(
+        self, cfg: UIConfig, rois: list[tuple[float, float, float, float] | None] | None = None
+    ) -> None:
+        """Apply edited appearance settings without recreating the window."""
+        self._cfg = cfg
+        self._ttl = max(1.0, cfg.line_ttl)
+        self._fade = min(1.5, self._ttl / 2)
+        self._fade_in = max(0.0, cfg.fade_in_ms / 1000.0)
+        self._slide = max(0, cfg.slide_in_px)
+        self._screen_color = QColor(cfg.screen_color)
+        self._voice_color = QColor(cfg.voice_color)
+        if rois is not None:
+            self._rois_rel = rois
+        self._font = self._build_font(self._pick_screen(1))
+        self.update()
 
     # ------------------------------------------------------------------- data
     def add_subtitle(self, subtitle: Subtitle) -> None:
@@ -248,10 +319,14 @@ class SubtitleOverlay(QWidget):
                 continue
 
             total_h = sum(h for _, _, _, h in blocks) + gap * (len(blocks) - 1)
-            left, top, centered_x = self._anchor_box(total_h, region)
+            left, top, centre_x = self._anchor_box(total_h, region)
             y = top
             for line, alpha, width, height in blocks:
-                x = left + (wrap_width - width) // 2 if centered_x else left
+                if centre_x is None:
+                    x = left
+                else:
+                    x = centre_x - width // 2
+                    x = max(8, min(x, self.width() - width - 8))
                 drift = self._slide_offset(now - line.born)
                 self._draw_block(painter, line, alpha, x, y + drift, width, height, wrap_width)
                 y += height + gap
@@ -277,8 +352,16 @@ class SubtitleOverlay(QWidget):
             int(fh * self.height()),
         )
 
-    def _anchor_box(self, total_h: int, region: int = 0) -> tuple[int, int, bool]:
-        """Return (left, top, horizontally_centred) for one region's stack."""
+    def _anchor_box(self, total_h: int, region: int = 0) -> tuple[int, int, int | None]:
+        """Return ``(left, top, centre_x)`` for one region's stack.
+
+        ``centre_x`` is set when the stack should be centred on that pixel
+        column, and ``None`` when blocks should be left-aligned at ``left``.
+
+        Centring on the ROI's own centre matters: with a narrow chat box the old
+        code centred inside the full wrap width, which pushed the subtitles
+        hundreds of pixels away from the box they describe.
+        """
         anchor = self._cfg.anchor.lower()
         margin = self._cfg.margin_px
         wrap_width = int(self.width() * self._cfg.max_width_ratio)
@@ -286,7 +369,6 @@ class SubtitleOverlay(QWidget):
         if anchor.startswith("roi"):
             roi = self._roi_pixels(region)
             if roi is not None:
-                centred_left = roi.center().x() - wrap_width // 2
                 if "below" in anchor:
                     top = roi.bottom() + self._cfg.roi_gap_px
                 elif "above" in anchor:
@@ -295,14 +377,10 @@ class SubtitleOverlay(QWidget):
                     top = roi.center().y() - total_h // 2
                 # Never let the stack leave the screen.
                 top = max(margin, min(top, self.height() - margin - total_h))
-                left = max(margin, min(centred_left, self.width() - margin - wrap_width))
-                return left, top, True
+                centre = max(margin, min(roi.center().x(), self.width() - margin))
+                return 0, top, centre
             # No ROI configured -> behave like a classic bottom-centred subtitle.
-            return (
-                (self.width() - wrap_width) // 2,
-                max(margin, self.height() - margin - total_h),
-                True,
-            )
+            return 0, max(margin, self.height() - margin - total_h), self.width() // 2
 
         if "bottom" in anchor:
             top = self.height() - margin - total_h
@@ -312,10 +390,10 @@ class SubtitleOverlay(QWidget):
             top = (self.height() - total_h) // 2
 
         if "left" in anchor:
-            return margin, top, False
+            return margin, top, None
         if "right" in anchor:
-            return self.width() - margin - wrap_width, top, False
-        return (self.width() - wrap_width) // 2, top, True
+            return self.width() - margin - wrap_width, top, None
+        return 0, top, self.width() // 2
 
     def _draw_block(
         self,

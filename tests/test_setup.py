@@ -125,3 +125,22 @@ def test_legacy_single_region_counts_as_configured(cfg, capsys):
     result = run_setup(cfg, interactive=False)
     assert result.ok
     assert "已配置 1 个扫描区域" in capsys.readouterr().out
+
+
+def test_default_config_path_is_isolated_during_tests():
+    """Regression guard: a test run once overwrote the developer's real
+    config.toml, because run_setup(config_path=None) falls back to the default
+    path. The autouse fixture must keep that path inside the pytest tmp tree."""
+    from fpst.core.config import default_config_path
+
+    path = default_config_path()
+    assert "pytest" in str(path), f"tests are using the real config path: {path}"
+
+
+def test_setup_writes_only_where_it_is_told(cfg, monkeypatch, tmp_path):
+    _no_regions(cfg)
+    monkeypatch.setattr("fpst.ui.roi_picker.pick_regions", lambda monitor=1: None)
+
+    target = tmp_path / "explicit.toml"
+    run_setup(cfg, interactive=True, config_path=str(target))
+    assert target.exists()

@@ -29,12 +29,24 @@ def _build_one(cfg: ScreenConfig, region: tuple[float, float, float, float] | No
     if name == "auto":
         name = PLATFORM_DEFAULT
     try:
-        source = create(ScreenSource, name, monitor=cfg.monitor, region=region)
+        source = create(
+            ScreenSource,
+            name,
+            monitor=cfg.monitor,
+            region=region,
+            monitor_origin=cfg.monitor_origin,
+        )
     except RegistryError:
         if name == PLATFORM_DEFAULT:
             raise
         # Configured engine is not installed / not supported here -> fall back.
-        source = create(ScreenSource, "mss", monitor=cfg.monitor, region=region)
+        source = create(
+            ScreenSource,
+            "mss",
+            monitor=cfg.monitor,
+            region=region,
+            monitor_origin=cfg.monitor_origin,
+        )
 
     if cfg.min_change_ratio > 0:
         source = ChangedOnly(source, min_change_ratio=cfg.min_change_ratio)

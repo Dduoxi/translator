@@ -183,6 +183,12 @@ class ScreenPipeline:
         finally:
             self.stop()
 
+    @property
+    def translator_stats(self) -> dict[str, float]:
+        """Cache/glossary counters, when the translator exposes them."""
+        stats = getattr(self._translator, "stats", None)
+        return dict(stats) if isinstance(stats, dict) else {}
+
     def __enter__(self) -> ScreenPipeline:
         self.start()
         return self

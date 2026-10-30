@@ -288,3 +288,84 @@ def test_unknown_region_index_falls_back_to_the_first_roi(app):
         assert widget._roi_pixels(99) == widget._roi_pixels(0)
     finally:
         widget.close()
+
+
+def test_reassert_top_is_a_noop_off_windows(app):
+    """Regression: Qt's raise_() pushes a topmost Tool window into the normal
+    layer on X11, which pushed our subtitles *behind* other topmost windows.
+    Verified live: with the timer on, subtitles vanished; off, they returned."""
+    import sys
+
+    cfg = _cfg(keep_on_top=True)
+    widget = SubtitleOverlay(cfg, monitor=1)
+    try:
+        raised: list[int] = []
+        widget.raise_ = lambda: raised.append(1)  # type: ignore[method-assign]
+        widget._reassert_top()
+        if sys.platform != "win32":
+            assert raised == [], "must not call raise_() on non-Windows"
+    finally:
+        widget.close()
+
+
+def test_keep_on_top_starts_and_stops_with_visibility(app):
+    cfg = _cfg(keep_on_top=True)
+    widget = SubtitleOverlay(cfg, monitor=1)
+    try:
+        assert widget._on_top_timer is not None
+        widget.show()
+        app.processEvents()
+        assert widget._on_top_timer.isActive()
+        widget.hide()
+        app.processEvents()
+        assert not widget._on_top_timer.isActive(), "timer must stop when hidden"
+    finally:
+        widget.close()
+
+
+def test_keep_on_top_can_be_disabled(app):
+    widget = SubtitleOverlay(_cfg(keep_on_top=False), monitor=1)
+    try:
+        assert widget._on_top_timer is None
+    finally:
+        widget.close()
+
+
+def test_roi_anchor_centres_on_the_region_not_the_wrap_width(app):
+    """Regression: with a narrow chat box the stack was centred inside the full
+    wrap width, landing hundreds of px away from the box it describes."""
+    cfg = _cfg(anchor="roi-below", max_width_ratio=0.62)
+    rois = [(0.04, 0.70, 0.21, 0.13)]  # narrow box near the left edge
+    widget = SubtitleOverlay(cfg, monitor=1, rois=rois)
+    widget.setGeometry(0, 0, 1920, 1080)
+    try:
+        roi = widget._roi_pixels(0)
+        _left, _top, centre_x = widget._anchor_box(60, region=0)
+        assert centre_x == roi.center().x()
+        # The old bug put it near the middle of the screen instead.
+        assert abs(centre_x - 1920 // 2) > 200
+    finally:
+        widget.close()
+
+
+def test_screen_centre_anchor_uses_the_screen_middle(app):
+    cfg = _cfg(anchor="bottom-center")
+    widget = SubtitleOverlay(cfg, monitor=1)
+    widget.setGeometry(0, 0, 1000, 800)
+    try:
+        _left, _top, centre_x = widget._anchor_box(40)
+        assert centre_x == 500
+    finally:
+        widget.close()
+
+
+def test_left_anchor_is_not_centred(app):
+    cfg = _cfg(anchor="bottom-left")
+    widget = SubtitleOverlay(cfg, monitor=1)
+    widget.setGeometry(0, 0, 1000, 800)
+    try:
+        left, _top, centre_x = widget._anchor_box(40)
+        assert centre_x is None
+        assert left == cfg.margin_px
+    finally:
+        widget.close()

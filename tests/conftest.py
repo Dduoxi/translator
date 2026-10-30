@@ -29,3 +29,20 @@ def _isolate_credentials(monkeypatch):
 
     monkeypatch.setattr(credentials, "_keyring", lambda: None)
     monkeypatch.delenv("FPST_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_config_path(tmp_path, monkeypatch):
+    """Never let a test write to the user's real config.toml.
+
+    A test called run_setup(config_path=None), which fell back to
+    default_config_path() and overwrote the developer's real regions with an
+    empty list. Every test now gets a private app-data directory.
+    """
+    from fpst.core import config as config_mod
+
+    data_dir = tmp_path / "appdata"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(config_mod, "app_data_dir", lambda: data_dir)
+    monkeypatch.setattr(config_mod, "default_config_path", lambda: data_dir / "config.toml")
+    yield data_dir

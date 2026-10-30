@@ -107,7 +107,15 @@ class ScreenConfig:
     engine: str = "auto"
     """auto | mss | dxgi"""
     monitor: int = 1
-    """1-based monitor index, matching what Windows' display settings show."""
+    """1-based monitor index. Kept for compatibility, but do not trust it alone:
+    mss counts a virtual 'all displays' entry first while Qt does not, so the
+    two libraries can disagree about which screen is #1."""
+    monitor_origin: tuple[int, int] | None = None
+    """Absolute (x, y) top-left of the picked screen in the virtual desktop.
+
+    This is what makes the picker and the capture agree. We match screens by
+    position instead of by index, which is the only stable identifier across
+    mss / Qt / DXGI enumeration orders."""
     region: tuple[float, float, float, float] | None = None
     """Single ROI as monitor fractions (x, y, w, h). Legacy; prefer ``regions``."""
     regions: list[tuple[float, float, float, float]] = field(default_factory=list)
@@ -264,6 +272,15 @@ class UIConfig:
     """
     roi_gap_px: int = 12
     """Gap between the scanned region and the subtitle stack."""
+    keep_on_top: bool = True
+    """Periodically re-assert WS_EX_TOPMOST (Windows only).
+
+    A topmost window does not stay topmost forever: the game, Steam's overlay or
+    Discord can raise themselves above us and our subtitles silently disappear
+    behind them. On Windows we re-apply HWND_TOPMOST directly, which is free and
+    does not remap the window. No-op elsewhere: Qt's raise_() on X11 pushes a
+    topmost Tool window back into the normal layer, i.e. it does the opposite.
+    """
     margin_px: int = 64
     show_source_text: bool = False
     show_latency: bool = False

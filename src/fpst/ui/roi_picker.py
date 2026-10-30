@@ -34,6 +34,8 @@ class PickedRegion:
     rect_px: tuple[int, int, int, int]
     fractions: tuple[float, float, float, float]
     monitor_size: tuple[int, int]
+    monitor_origin: tuple[int, int] = (0, 0)
+    """Absolute top-left of the picked screen, so capture can match it exactly."""
 
     @property
     def cli_region(self) -> str:
@@ -292,6 +294,7 @@ class RoiPicker(QWidget):
             ),
             fractions=tuple(round(v, 4) for v in (fx, fy, fw, fh)),  # type: ignore[arg-type]
             monitor_size=(mon_px_w, mon_px_h),
+            monitor_origin=(geo.x(), geo.y()),
         )
 
 

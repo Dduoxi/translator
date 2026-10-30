@@ -14,6 +14,7 @@ fpst setup    # re-run the first-run wizard (key + regions)
 from __future__ import annotations
 
 import argparse
+import logging
 import platform
 import sys
 import time
@@ -179,6 +180,7 @@ def cmd_roi(args: argparse.Namespace) -> int:
         print()
         print(f"verifying {len(picked)} region(s)...")
         cfg.screen.monitor = monitor
+        cfg.screen.monitor_origin = picked[0].monitor_origin
         cfg.screen.regions = [r.fractions for r in picked]
         cfg.screen.region = None
         cfg.screen.min_change_ratio = 0
@@ -211,6 +213,7 @@ def cmd_roi(args: argparse.Namespace) -> int:
 
     if args.write:
         cfg.screen.monitor = monitor
+        cfg.screen.monitor_origin = picked[0].monitor_origin
         cfg.screen.regions = [r.fractions for r in picked]
         cfg.screen.region = None
         path = cfg.save(args.config)
@@ -316,109 +319,36 @@ _DEMO_LINES = [
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """The product: capture -> OCR -> translate -> transparent overlay."""
-    from PySide6.QtCore import QTimer
-
-    from .core.bus import EventBus
-    from .core.types import Lang, Subtitle
-    from .runtime import apply_resource_policy
-    from .runtime.credentials import MissingApiKey, ensure_api_key
-    from .ui.overlay import OverlayController, SubtitleOverlay, create_app
+    """The product: tray + overlay + pipeline, with a settings window."""
+    from .runtime.setup import run_setup
+    from .ui.app import run_app
 
     load_builtin_engines()
     cfg = AppConfig.load(args.config)
     if args.region:
-        cfg.screen.region = tuple(float(v) for v in args.region)
-
-    if not args.demo:
-        from .runtime.setup import run_setup
-
-        if not args.skip_setup:
-            print("首次启动检查:")
-            result = run_setup(
-                cfg,
-                interactive=not args.no_prompt,
-                config_path=args.config,
-            )
-            if not result:
-                print(f"无法启动：{result.message}", file=sys.stderr)
-                return 2
-        else:
-            try:
-                ensure_api_key(
-                    cfg.translate,
-                    interactive=not args.no_prompt,
-                    reason="首次使用需要配置翻译密钥。",
-                )
-            except MissingApiKey as exc:
-                print(f"无法启动：{exc}", file=sys.stderr)
-                return 2
-        print()
-        for note in apply_resource_policy(
-            low_priority=cfg.performance.low_priority,
-            cpu_reserve=cfg.performance.cpu_reserve,
-        ):
-            print(f"resource policy: {note}")
-
-    app = create_app()
-    overlay = SubtitleOverlay(cfg.ui, monitor=cfg.screen.monitor, roi=cfg.screen.region)
-    overlay.show()
-
-    bus = EventBus()
-    controller = OverlayController(overlay, bus)
-
-    pipeline = None
-    demo_timer = None
-    if args.demo:
-        state = {"i": 0}
-
-        def feed() -> None:
-            src, dst, source = _DEMO_LINES[state["i"] % len(_DEMO_LINES)]
-            state["i"] += 1
-            bus.publish(
-                Subtitle(
-                    src_text=src,
-                    dst_text=dst,
-                    source=source,
-                    src_lang=Lang.EN,
-                    latency_ms=880.0,
-                )
-            )
-            app.processEvents()  # noqa: F841 - keep the demo lively without a pipeline
-
-        demo_timer = QTimer()
-        demo_timer.timeout.connect(feed)
-        demo_timer.start(2200)
-        print("demo mode: showing sample subtitles (Ctrl-C to stop)")
-    else:
-        from .pipeline import ScreenPipeline
-
-        pipeline = ScreenPipeline.from_config(cfg, bus)
-        pipeline.start()
-        print(
-            f"running: region={cfg.screen.region} at {cfg.screen.max_fps:g} fps, "
-            f"model={cfg.translate.model} (Ctrl-C to stop)"
+        cfg.screen.regions = [tuple(float(v) for v in args.region)]
+        cfg.screen.region = None
+    if args.verbose:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
         )
 
-    # Let Ctrl-C actually reach us: Qt's event loop blocks Python signal handling
-    # unless something wakes it periodically.
-    import signal
+    if not args.demo and not args.skip_setup and not args.no_prompt:
+        print("首次启动检查:")
+        result = run_setup(cfg, interactive=True, config_path=args.config)
+        if not result:
+            print(f"无法启动：{result.message}", file=sys.stderr)
+            return 2
+        print()
 
-    signal.signal(signal.SIGINT, lambda *_: app.quit())
-    wakeup = QTimer()
-    wakeup.timeout.connect(lambda: None)
-    wakeup.start(250)
-
-    try:
-        code = app.exec()
-    finally:
-        if demo_timer is not None:
-            demo_timer.stop()
-        if pipeline is not None:
-            pipeline.stop()
-            print(f"\n{pipeline.stats.summary()}")
-        controller.close()
-    return int(code)
+    return run_app(
+        args.config,
+        show_settings=args.demo or args.settings,
+        demo=args.demo,
+        interactive=not args.no_prompt,
+    )
 
 
 def cmd_setup(args: argparse.Namespace) -> int:
@@ -632,6 +562,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--skip-setup", action="store_true", help="skip the region wizard, use config as-is"
     )
+    p_run.add_argument("-v", "--verbose", action="store_true", help="log pipeline details")
+    p_run.add_argument("--settings", action="store_true", help="open the settings window on start")
     p_run.set_defaults(func=cmd_run)
 
     p_setup = sub.add_parser("setup", help="first-run wizard: key + regions")

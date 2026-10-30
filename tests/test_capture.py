@@ -147,3 +147,31 @@ def test_mss_roi_is_respected():
         assert h == pytest.approx(full_h // 2, abs=2)
     finally:
         src.close()
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not has_display, reason="needs a desktop session")
+def test_monitor_is_matched_by_origin_not_index():
+    """mss inserts an all-displays entry at index 0 while Qt does not, so the two
+    libraries disagree about which screen is #1. Position is unambiguous."""
+    pytest.importorskip("mss")
+    import mss as _mss
+
+    from fpst.capture.mss_source import MssSource
+
+    with _mss.MSS() as sct:
+        monitors = sct.monitors
+    if len(monitors) < 3:
+        pytest.skip("needs at least two physical monitors")
+
+    # Ask for the *second* physical monitor but give the origin of the first.
+    first = monitors[1]
+    src = MssSource(
+        monitor=2,  # deliberately wrong index
+        monitor_origin=(int(first["left"]), int(first["top"])),
+    )
+    try:
+        width, height = src.size
+    finally:
+        src.close()
+    assert (width, height) == (int(first["width"]), int(first["height"]))
