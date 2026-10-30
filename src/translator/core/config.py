@@ -97,7 +97,7 @@ def app_data_dir() -> Path:
         # (renamed from FpsTranslator; the old folder is left alone so an
         #  upgraded install keeps its config, at the cost of one re-setup)
     base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-    return base / "fps-translator"
+    return base / "translator"
 
 
 def default_config_path() -> Path:
