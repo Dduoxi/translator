@@ -37,7 +37,18 @@ _FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 _ARRAY = re.compile(r"\[.*\]", re.DOTALL)
 _NUMBERED = re.compile(r"^\s*\d+[.)]\s*")
 
+# Human-readable names for the prompt. "zh" alone is ambiguous (the model may
+# pick Traditional Chinese or English-influenced wording).
+_LANG_NAMES = {
+    Lang.EN: "English",
+    Lang.ZH: "Simplified Chinese",
+    Lang.JA: "Japanese",
+    Lang.KO: "Korean",
+    Lang.RU: "Russian",
+}
+
 SYSTEM_PROMPT = """You translate live in-game chat for a first-person shooter.
+Translate from {src} into {dst}.
 
 Rules:
 - Output ONLY the translation. No explanations, no notes, no quotes.
@@ -46,11 +57,19 @@ Rules:
 - Prefer the tactical meaning over the literal one.
 - If a line is only a player name, an emote or untranslatable, return it unchanged.
 
+Examples (input -> output), note how slang and names are handled:
+["gg wp", "rush b fast, i have flash"] -> ["打得好", "快攻B点，我有闪"]
+["xX_Shadow_Xx: 2hp behind the box", "nice"] -> ["xX_Shadow_Xx：残血一个，在箱子后面", "不错"]
+
 Glossary (follow it when a term appears):
 {glossary}
 
 Output format: a single JSON array of strings, with exactly {count} entries, one
 per input line in the same order. No markdown fences, no other text."""
+
+
+def _lang_name(lang: Lang) -> str:
+    return _LANG_NAMES.get(lang, str(lang.value))
 
 
 class LLMTranslator(Translator):
@@ -123,7 +142,10 @@ class LLMTranslator(Translator):
                 {
                     "role": "system",
                     "content": SYSTEM_PROMPT.format(
-                        glossary=self._glossary_text(), count=len(texts)
+                        src=_lang_name(src),
+                        dst=_lang_name(dst),
+                        glossary=self._glossary_text(),
+                        count=len(texts),
                     ),
                 },
                 {"role": "user", "content": json.dumps(list(texts), ensure_ascii=False)},

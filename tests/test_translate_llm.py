@@ -195,3 +195,35 @@ def test_cache_absorbs_repeated_lines():
     assert cached.translate(["rush"], Lang.EN, Lang.ZH) == ["快攻"]
     assert engine.requests == 1, "second call must come from the cache"
     assert cached.stats["hits"] == 1.0
+
+
+def _capture_prompt(src: Lang, dst: Lang) -> str:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '["x"]'}}]})
+
+    engine = LLMTranslator(api_key="k", transport=httpx.MockTransport(handler))
+    engine.warmup()
+    engine.translate(["rush"], src, dst)
+    engine.close()
+    return captured["messages"][0]["content"]  # type: ignore[index]
+
+
+def test_prompt_states_the_target_language():
+    """Regression: src/dst were accepted but never reached the prompt, so the
+    model had to guess the output language."""
+    prompt = _capture_prompt(Lang.EN, Lang.ZH)
+    assert "into Simplified Chinese" in prompt
+    assert "from English" in prompt
+
+
+def test_changing_target_language_changes_the_prompt():
+    assert "into Japanese" in _capture_prompt(Lang.EN, Lang.JA)
+
+
+def test_prompt_contains_worked_examples():
+    prompt = _capture_prompt(Lang.EN, Lang.ZH)
+    assert "rush b fast" in prompt
+    assert "快攻B点" in prompt
