@@ -337,3 +337,34 @@ def test_debounce_suppresses_ocr_on_a_churning_screen():
         assert ocr.calls == 0, f"OCR ran {ocr.calls}x before the screen settled"
     finally:
         pipeline.stop()
+
+
+def test_skipped_translations_do_not_become_subtitles():
+    """A noise line the model maps to "" must never reach the overlay."""
+
+    class SkippingTranslator(MockTranslator):
+        def translate(self, texts, src, dst):
+            self.calls.append(list(texts))
+            return ["" if t.startswith("+") else f"译:{t}" for t in texts]
+
+    image = np.zeros((60, 200, 3), np.uint8)
+    bus = EventBus()
+    got: list[Subtitle] = []
+    bus.subscribe(Subtitle, got.append)
+
+    pipeline = ScreenPipeline(
+        ReplaySource([image]),
+        MockOCREngine(lines=["+150", "rush b", "PlayerOne"]),
+        SkippingTranslator(),
+        bus,
+        max_fps=50,
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: len(got) >= 2)
+        time.sleep(0.2)
+    finally:
+        pipeline.stop()
+
+    assert [s.dst_text for s in got] == ["译:rush b", "译:PlayerOne"]

@@ -47,25 +47,35 @@ _LANG_NAMES = {
     Lang.RU: "Russian",
 }
 
-SYSTEM_PROMPT = """You translate live in-game chat for a first-person shooter.
+SYSTEM_PROMPT = """You are the subtitle translator for a live first-person
+shooter. You turn in-game chat and voice callouts into short {dst} subtitles a
+player can read in the middle of a firefight.
+
 Translate from {src} into {dst}.
 
-Rules:
-- Output ONLY the translation. No explanations, no notes, no quotes.
-- Keep player names, tags, numbers and codes exactly as written (PlayerOne, 2hp, B site).
-- Keep the terse, spoken style of in-game chat. Never make it formal or literary.
-- Prefer the tactical meaning over the literal one.
-- If a line is only a player name, an emote or untranslatable, return it unchanged.
+Hard rules:
+- Output ONLY the translation. No notes, no quotes, no romanisation.
+- SHORT subtitles. Aim under 20 characters. Drop filler a player does not need
+  mid-fight ("please", "I think", "you know", "can you").
+- Keep player names, clan tags, numbers and map codes exactly as written:
+  PlayerOne, xX_Shadow_Xx, 2hp, B site, mid, long, A main.
+- Keep the terse, spoken register of voice comms. Never formal or literary.
+- The input comes from OCR and may contain garbled fragments. Silently ignore
+  them; never guess or invent words that are not there.
+- Return "" (empty string) for lines with no message to translate: pure
+  numbers or symbols, kill-feed counters, or a line that is only a name.
+- Never merge, split or reorder lines. Exactly one output per input.
 
-Examples (input -> output), note how slang and names are handled:
-["gg wp", "rush b fast, i have flash"] -> ["打得好", "快攻B点，我有闪"]
-["xX_Shadow_Xx: 2hp behind the box", "nice"] -> ["xX_Shadow_Xx：残血一个，在箱子后面", "不错"]
+Examples (input -> output):
+["gg wp", "rush b fast i have flash"] -> ["打得好", "快攻B点，我有闪"]
+["xX_Shadow_Xx: 2hp behind the box", "nice shot"] -> ["xX_Shadow_Xx：残血，箱子后", "好枪"]
+["+150", "PlayerOne", "ez"] -> ["", "", "简单"]
 
-Glossary (follow it when a term appears):
+Glossary (use these renderings when the term appears):
 {glossary}
 
-Output format: a single JSON array of strings, with exactly {count} entries, one
-per input line in the same order. No markdown fences, no other text."""
+Output: one JSON array of exactly {count} strings, in input order.
+No markdown fences, no other text."""
 
 
 def _lang_name(lang: Lang) -> str:
@@ -137,14 +147,14 @@ class LLMTranslator(Translator):
         payload = {
             "model": self._model,
             "temperature": self._temperature,
-            "max_tokens": self._max_tokens,
+            "max_tokens": self._token_budget(texts),
             "messages": [
                 {
                     "role": "system",
                     "content": SYSTEM_PROMPT.format(
                         src=_lang_name(src),
                         dst=_lang_name(dst),
-                        glossary=self._glossary_text(),
+                        glossary=self._glossary_text(texts),
                         count=len(texts),
                     ),
                 },
@@ -200,9 +210,15 @@ class LLMTranslator(Translator):
 
     @staticmethod
     def _fit(items: list[str], fallback: list[str]) -> list[str]:
-        """Align the model's list to our input: pad with source, drop extras."""
+        """Align the model's list to our input.
+
+        When the count matches, an empty string is *honoured*: the prompt asks
+        the model to return "" for noise lines (kill-feed counters, lone
+        names), and the pipeline drops empty translations. Only when the count
+        is wrong do we treat empties as damage and fall back to the source.
+        """
         if len(items) == len(fallback):
-            return [item.strip() or source for item, source in zip(items, fallback, strict=True)]
+            return [item.strip() for item in items]
         log.debug("model returned %d items for %d inputs", len(items), len(fallback))
         out = []
         for i, source in enumerate(fallback):
@@ -210,10 +226,33 @@ class LLMTranslator(Translator):
             out.append(value or source)
         return out
 
-    def _glossary_text(self) -> str:
+    def _glossary_text(self, texts: Sequence[str] | None = None) -> str:
+        """Only inject terms that actually appear in this batch.
+
+        A 100-term glossary pasted into every request is pure token waste and
+        distracts the model. Substring matching over the batch is crude (a bare
+        check for "hold" also hits "holder") but over-including a term is
+        harmless, whereas missing one loses the correct rendering.
+        """
         if not self._glossary:
             return "(none)"
+        if texts:
+            haystack = " ".join(texts).casefold()
+            relevant = {
+                term: value for term, value in self._glossary.items() if term.casefold() in haystack
+            }
+            if relevant:
+                return ", ".join(f"{k} = {v}" for k, v in relevant.items())
         return ", ".join(f"{k} = {v}" for k, v in self._glossary.items())
+
+    def _token_budget(self, texts: Sequence[str]) -> int:
+        """Scale the cap with the batch so long batches are never truncated.
+
+        A fixed cap silently cuts the array mid-way, which then fails JSON
+        parsing and degrades the whole batch to the source text.
+        """
+        estimate = sum(len(t) for t in texts) * 2 + 64
+        return max(256, min(self._max_tokens, estimate))
 
     @property
     def stats(self) -> dict[str, int]:

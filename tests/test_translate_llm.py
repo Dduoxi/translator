@@ -138,7 +138,7 @@ def test_glossary_and_count_reach_the_prompt():
 
     system = captured["messages"][0]["content"]  # type: ignore[index]
     assert "rush = 快攻" in system
-    assert "exactly 1 entries" in system
+    assert "exactly 1 strings" in system
     assert json.loads(captured["messages"][1]["content"]) == ["rush"]  # type: ignore[index]
     assert captured["temperature"] == 0.0
 
@@ -227,3 +227,71 @@ def test_prompt_contains_worked_examples():
     prompt = _capture_prompt(Lang.EN, Lang.ZH)
     assert "rush b fast" in prompt
     assert "快攻B点" in prompt
+
+
+def test_empty_string_means_skip_and_is_preserved():
+    """The prompt asks for "" on noise lines; the pipeline drops them."""
+    engine = _engine('["打得好", "", ""]')
+    engine.warmup()
+    out = engine.translate(["gg", "+150", "PlayerOne"], Lang.EN, Lang.ZH)
+    assert out == ["打得好", "", ""]
+    engine.close()
+
+
+def test_empty_on_count_mismatch_still_falls_back_to_source():
+    """If the model also got the count wrong, alignment is untrustworthy, so
+    every empty degrades to the source line rather than being skipped."""
+    engine = _engine('["", ""]')
+    engine.warmup()
+    out = engine.translate(["gg", "+150", "PlayerOne"], Lang.EN, Lang.ZH)
+    assert out == ["gg", "+150", "PlayerOne"]
+    engine.close()
+
+
+def test_glossary_is_filtered_to_terms_in_the_batch():
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '["x"]'}}]})
+
+    engine = LLMTranslator(
+        api_key="k",
+        transport=httpx.MockTransport(handler),
+        glossary={"rush": "快攻", "flank": "侧翼包抄", "eco": "经济局"},
+    )
+    engine.warmup()
+    engine.translate(["rush b fast"], Lang.EN, Lang.ZH)
+    engine.close()
+
+    system = captured["messages"][0]["content"]  # type: ignore[index]
+    assert "rush = 快攻" in system
+    assert "flank" not in system  # not in this batch
+    assert "eco" not in system
+
+
+def test_glossary_falls_back_to_full_list_when_nothing_matches():
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": '["x"]'}}]})
+
+    engine = LLMTranslator(
+        api_key="k",
+        transport=httpx.MockTransport(handler),
+        glossary={"rush": "快攻"},
+    )
+    engine.warmup()
+    engine.translate(["hello there"], Lang.EN, Lang.ZH)
+    engine.close()
+    assert "rush = 快攻" in captured["messages"][0]["content"]  # type: ignore[index]
+
+
+def test_token_budget_scales_with_batch_and_is_capped():
+    engine = LLMTranslator(api_key="k", api_key_env="X", max_tokens=4096)
+    short = engine._token_budget(["ab"])
+    long = engine._token_budget(["x" * 2000])
+    assert short >= 256
+    assert long > short
+    assert long <= 4096
