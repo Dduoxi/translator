@@ -128,12 +128,30 @@ class ASRConfig:
 
 @dataclass
 class TranslateConfig:
-    engine: str = "mock"
+    engine: str = "auto"
+    """auto | llm | mock
+
+    ``auto`` picks ``llm`` when an API key is discoverable and falls back to
+    ``mock`` (with a warning) otherwise, so a fresh checkout still runs."""
     src_lang: str = "en"
     dst_lang: str = "zh"
     cache_size: int = 1024
-    timeout_s: float = 4.0
+    timeout_s: float = 6.0
     glossary: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GLOSSARY))
+
+    # --- engine = "llm": any OpenAI-compatible chat-completions endpoint -------
+    base_url: str = "https://api.deepseek.com/v1"
+    """Include the version prefix. Examples:
+    https://api.deepseek.com/v1
+    https://dashscope.aliyuncs.com/compatible-mode/v1
+    https://api.moonshot.cn/v1
+    http://localhost:11434/v1          (Ollama, no key needed)"""
+    model: str = "deepseek-chat"
+    api_key: str = ""
+    """Prefer the environment variable over pasting a key into this file."""
+    api_key_env: str = "FPST_API_KEY"
+    temperature: float = 0.0
+    max_tokens: int = 1024
 
 
 @dataclass

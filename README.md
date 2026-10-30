@@ -71,6 +71,44 @@ Windows 机器上建议 Python **3.11**（faster-whisper / PySide6 的轮子最�
 
 ---
 
+## 配置翻译服务（唯一需要密钥的地方）
+
+默认 `engine = "auto"`：**发现密钥就用 LLM，没有就退回 mock 并警告**，所以拿到代码
+就能跑。密钥优先从环境变量读，别写进配置文件：
+
+```bash
+export FPST_API_KEY="sk-..."        # Windows: setx FPST_API_KEY "sk-..."
+```
+
+任何 **OpenAI 兼容**端点都能用，只改 `base_url` + `model`：
+
+```toml
+[translate]
+engine = "llm"
+base_url = "https://api.deepseek.com/v1"
+model = "deepseek-chat"
+# 通义: https://dashscope.aliyuncs.com/compatible-mode/v1   model = "qwen-plus"
+# Kimi: https://api.moonshot.cn/v1                         model = "moonshot-v1-8k"
+# 本地 Ollama（无需密钥）: http://localhost:11434/v1       model = "qwen2.5:7b"
+```
+
+**为什么用 LLM 而不是传统机翻**：游戏黑话是机翻重灾区（`rush` → 「冲」而不是
+「快攻」，`eco` → 「生态」）。术语表会作为提示词注入：
+
+```toml
+[translate.glossary]
+"cover me" = "掩护我"
+peek = "探头对枪"
+```
+
+**批量是必须的，不是优化**：屏幕上同时出现的 4 行会合并成 1 次请求。LLM 每次调用都
+有往返和 token 成本，逐行调用会贵 4 倍、慢 4 倍。
+
+**失败策略**：模型返回坏 JSON、条数不对或超时，都退回**原文**而不是丢掉这一行 ——
+看到英文也比什么都没有强，字幕不会断档。
+
+---
+
 ## 资源预算（硬约束）
 
 本产品的定位是**游戏旁边的隐形字幕**，不是要抢 CPU。所有实现取舍都服从这张表，

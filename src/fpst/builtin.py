@@ -20,7 +20,7 @@ MODULES = [
     "fpst.capture.mss_source",
     "fpst.capture.dxgi",
     "fpst.ocr.rapidocr_engine",
-    "fpst.translate.glossary",
+    "fpst.translate.llm",
 ]
 
 MISSING: dict[str, str] = {}

@@ -13,8 +13,11 @@ def test_create_known_engine():
 
 
 def test_create_unknown_engine_lists_options():
-    with pytest.raises(RegistryError, match="available: mock"):
+    with pytest.raises(RegistryError) as exc:
         create(Translator, "does-not-exist")
+    # The message must tell the user what *is* available.
+    assert "available:" in str(exc.value)
+    assert "mock" in str(exc.value)
 
 
 def test_unknown_kind():
