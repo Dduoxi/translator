@@ -302,7 +302,9 @@ class RoiPicker(QWidget):
 _active_picker: RoiPicker | None = None
 
 
-def pick_regions(monitor: int = 1) -> list[PickedRegion] | None:
+def pick_regions(
+    monitor: int = 1, origin: tuple[int, int] | None = None
+) -> list[PickedRegion] | None:
     """Show the picker on ``monitor`` (1-based). ``None`` means cancelled.
 
     Runs a **nested** event loop rather than calling ``QApplication.exec()``.
@@ -319,13 +321,13 @@ def pick_regions(monitor: int = 1) -> list[PickedRegion] | None:
         _active_picker.activateWindow()
         return None
 
-    app = QApplication.instance() or QApplication([])
-    screens = app.screens()
-    if not screens:
-        raise RuntimeError("no display available")
-    index = max(0, min(monitor - 1, len(screens) - 1))
+    from .screens import find_screen
 
-    picker = RoiPicker(screens[index], index + 1)  # type: ignore[arg-type]
+    app = QApplication.instance() or QApplication([])
+    screen = find_screen(origin, monitor - 1)
+    index = app.screens().index(screen) + 1
+
+    picker = RoiPicker(screen, index)  # type: ignore[arg-type]
     loop = QEventLoop()
     picker.finished.connect(loop.quit)
     _active_picker = picker

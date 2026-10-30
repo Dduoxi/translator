@@ -179,6 +179,12 @@ def cmd_roi(args: argparse.Namespace) -> int:
     if args.verify:
         print()
         print(f"verifying {len(picked)} region(s)...")
+        # Verify against a *copy*: one-shot probing needs the change gate off,
+        # but writing that back would silently disable the single biggest CPU
+        # optimisation in the product.
+        import copy as _copy
+
+        cfg = _copy.deepcopy(cfg)
         cfg.screen.monitor = monitor
         cfg.screen.monitor_origin = picked[0].monitor_origin
         cfg.screen.regions = [r.fractions for r in picked]
@@ -212,6 +218,9 @@ def cmd_roi(args: argparse.Namespace) -> int:
             engine.close()
 
     if args.write:
+        # Re-load so the version we save is the on-disk one plus the new regions,
+        # never the probe settings.
+        cfg = AppConfig.load(args.config)
         cfg.screen.monitor = monitor
         cfg.screen.monitor_origin = picked[0].monitor_origin
         cfg.screen.regions = [r.fractions for r in picked]

@@ -66,7 +66,10 @@ def run_app(
             return 2
 
     overlay = SubtitleOverlay(
-        cfg.ui, monitor=cfg.screen.monitor, rois=cfg.screen.resolved_regions()
+        cfg.ui,
+        monitor=cfg.screen.monitor,
+        rois=cfg.screen.resolved_regions(),
+        origin=cfg.screen.monitor_origin,
     )
     overlay.show()
     controller.attach_overlay(overlay)
@@ -96,7 +99,10 @@ def run_app(
     def pick_regions() -> None:
         from .roi_picker import pick_regions as pick
 
-        picked = pick(monitor=controller.cfg.screen.monitor)
+        picked = pick(
+            monitor=controller.cfg.screen.monitor,
+            origin=controller.cfg.screen.monitor_origin,
+        )
         if not picked:
             return
         config = controller.cfg

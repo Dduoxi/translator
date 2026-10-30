@@ -323,3 +323,32 @@ def test_hidden_window_is_not_offered_as_the_settings_target(app, cfg_path):
         assert window.isVisible(), "window must be re-showable after hiding"
     finally:
         window.close()
+
+
+def test_overlay_picks_the_screen_by_origin_not_by_index(app):
+    """Regression: the overlay used a raw Qt screen index while capture matched by
+    absolute origin (mss and Qt order screens differently), so subtitles could
+    appear on one display while OCR read another."""
+    from fpst.ui.overlay import SubtitleOverlay
+    from fpst.ui.screens import screen_origin
+
+    screens = app.screens()
+    if len(screens) < 2:
+        pytest.skip("needs two screens")
+
+    target = screens[1]
+    origin = screen_origin(target)
+    # Deliberately pass the *wrong* index; the origin must win.
+    widget = SubtitleOverlay(AppConfig().ui, monitor=1, origin=origin)
+    try:
+        assert widget.geometry() == target.geometry()
+    finally:
+        widget.close()
+
+
+def test_find_screen_falls_back_to_index_when_origin_is_unknown(app):
+    from fpst.ui.screens import find_screen
+
+    screens = app.screens()
+    assert find_screen(None, 0) is screens[0]
+    assert find_screen((999999, 999999), 0) is screens[0]

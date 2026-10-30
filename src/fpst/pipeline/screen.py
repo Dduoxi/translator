@@ -118,7 +118,11 @@ class ScreenPipeline:
         self._settle = max(0.0, settle_s)
         # Never let a continuously-animating screen starve OCR entirely.
         self._settle_cap = max(self._settle * 4, self._settle + 1.0)
-        self._dedupe = RecentTexts(ttl=dedupe_ttl)
+        # One dedupe cache *per region*. A shared cache would treat two
+        # teammates saying "nice shot" as a repeat and silently drop the second
+        # one, which is exactly what happened with twelve chat panels.
+        self._dedupe_ttl = dedupe_ttl
+        self._dedupe: dict[int, RecentTexts] = {}
         # One pending slot *per region*: with several ROIs a single slot would let
         # one region's frame overwrite another's, silently losing a translation.
         self._mailbox: LatestPerKey[int, Frame] = LatestPerKey()
@@ -281,15 +285,16 @@ class ScreenPipeline:
             if got is None:
                 continue
 
-            # Throttle recognition, not capture. Waiting *before* OCR means the
-            # frame we finally process is the freshest one, not a backlog.
+            # Throttle recognition, not capture.
+            #
+            # We wait first, then keep the item we already hold. An earlier
+            # version swapped it for "whatever is newest" after the wait, which
+            # starved regions under load: with twelve ROIs all changing, the
+            # oldest pending region was dropped on every single pass, so only the
+            # handful that happened to be newest ever got processed.
             gap = self._min_interval - (time.monotonic() - last_run)
-            if gap > 0:
-                if self._stop.wait(gap):
-                    break
-                newer = self._mailbox.get(timeout=0)
-                if newer is not None:
-                    got = newer
+            if gap > 0 and self._stop.wait(gap):
+                break
 
             last_run = time.monotonic()
             try:
@@ -319,6 +324,8 @@ class ScreenPipeline:
             for (region, frame_ts), dst in zip(items, translated, strict=False):
                 if not dst:
                     continue  # model said "nothing to show"
+                if _is_bare_name(region.text, dst):
+                    continue  # a lone player name is noise, not a subtitle
                 self._bus.publish(
                     Subtitle(
                         src_text=region.text,
@@ -348,8 +355,9 @@ class ScreenPipeline:
             regions = [r for r in regions if r.confidence >= self._min_conf]
         regions = regions[: self._max_lines]
 
-        # Only pay for translation on genuinely new lines.
-        fresh = [r for r in regions if r.text and self._dedupe.check_and_add(r.text)]
+        # Only pay for translation on genuinely new lines, per region.
+        seen = self._dedupe.setdefault(region_index, RecentTexts(ttl=self._dedupe_ttl))
+        fresh = [r for r in regions if r.text and seen.check_and_add(r.text)]
         self.stats.lines_new += len(fresh)
         if not fresh:
             return
@@ -359,6 +367,22 @@ class ScreenPipeline:
         # latest-wins slot would drop a region's lines when two ROIs change at
         # the same moment.
         self._translate_mailbox.extend(region_index, [(region, frame.ts) for region in fresh])
+
+
+def _is_bare_name(source: str, translation: str) -> bool:
+    """True for a line that is only a player name (e.g. "xX_Shadow_Xx").
+
+    OCR often boxes the chat name separately from the message, and translating a
+    lone name produces a useless subtitle bubble. Treated as noise only when the
+    model returned it unchanged and it looks like an identifier: one token, ASCII,
+    at least three characters.
+    """
+    text = source.strip()
+    if text != translation.strip():
+        return False
+    if " " in text or len(text) < 3:
+        return False
+    return all(ord(ch) < 128 for ch in text)
 
 
 def _lang(value: str) -> Lang:

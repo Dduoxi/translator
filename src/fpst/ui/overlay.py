@@ -89,6 +89,7 @@ class SubtitleOverlay(QWidget):
         monitor: int = 1,
         roi: tuple[float, float, float, float] | None = None,
         rois: list[tuple[float, float, float, float] | None] | None = None,
+        origin: tuple[int, int] | None = None,
     ) -> None:
         super().__init__(
             None,
@@ -117,6 +118,8 @@ class SubtitleOverlay(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setWindowTitle("fpst overlay")
 
+        self._origin = origin
+        self._monitor_index = monitor
         screen = self._pick_screen(monitor)
         self.setGeometry(screen.geometry())
 
@@ -132,11 +135,12 @@ class SubtitleOverlay(QWidget):
             self._on_top_timer.timeout.connect(self._reassert_top)
 
     # ------------------------------------------------------------------ setup
-    @staticmethod
-    def _pick_screen(monitor: int):
-        screens = QGuiApplication.screens()
-        index = max(0, min(monitor - 1, len(screens) - 1))
-        return screens[index]
+    def _pick_screen(self, monitor: int = 1):
+        """Match by absolute position so the overlay lands on the screen that
+        capture is actually reading."""
+        from .screens import find_screen
+
+        return find_screen(getattr(self, "_origin", None), monitor - 1)
 
     def _build_font(self, screen) -> QFont:
         from PySide6.QtGui import QFontDatabase
@@ -217,7 +221,7 @@ class SubtitleOverlay(QWidget):
         self._voice_color = QColor(cfg.voice_color)
         if rois is not None:
             self._rois_rel = rois
-        self._font = self._build_font(self._pick_screen(1))
+        self._font = self._build_font(self._pick_screen())
         self.update()
 
     # ------------------------------------------------------------------- data

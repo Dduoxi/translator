@@ -532,3 +532,121 @@ def test_one_region_changing_does_not_reprocess_another():
     # The quiet region's gate must have suppressed repeats: total OCR runs stay
     # modest instead of doubling per tick.
     assert ocr.calls <= 8, f"quiet region was re-OCR'd too often ({ocr.calls} runs)"
+
+
+def test_throttle_does_not_starve_regions_under_load():
+    """Regression: the worker waited for the throttle window and then replaced
+    its pending item with the newest one, so with many ROIs the same few regions
+    were processed repeatedly while others never were."""
+
+    class PerRegionOCR(MockOCREngine):
+        def __init__(self):
+            super().__init__(lines=["x"])
+            self.seen: list[int] = []
+
+        def recognize(self, frame):
+            idx = frame.image[0, 0, 0]  # encoded by the source below
+            self.seen.append(int(idx))
+            self.calls += 1
+            return MockOCREngine(lines=[f"region {idx}"]).recognize(frame)
+
+    class TaggedSource(ScreenSource):
+        name = "tagged"
+
+        def __init__(self, tag: int) -> None:
+            self.tag = tag
+
+        def open(self):
+            pass
+
+        def close(self):
+            pass
+
+        def grab(self):
+            img = np.zeros((40, 60, 3), np.uint8)
+            img[0, 0, 0] = self.tag
+            return Frame(image=img)
+
+        @property
+        def size(self):
+            return (60, 40)
+
+    ocr = PerRegionOCR()
+    pipeline = ScreenPipeline(
+        [TaggedSource(i) for i in range(8)],
+        ocr,
+        MockTranslator(),
+        EventBus(),
+        max_fps=50,  # sources change constantly
+        min_interval=0.05,  # heavy throttle relative to the frame rate
+        merge_lines=False,
+    )
+    pipeline.start()
+    try:
+        time.sleep(1.5)
+    finally:
+        pipeline.stop()
+
+    distinct = set(ocr.seen)
+    assert len(distinct) >= 5, f"throttle starved regions; only saw {sorted(distinct)}"
+
+
+def test_identical_text_in_two_regions_is_not_deduped():
+    """Two teammates can say the same thing; a shared cache would drop the second."""
+
+    class EchoOCR(MockOCREngine):
+        def recognize(self, frame):
+            self.calls += 1
+            idx = frame.image[0, 0, 0]
+            return MockOCREngine(lines=[f"nice shot {idx}"]).recognize(frame)
+
+    class Tagged(ScreenSource):
+        name = "tagged"
+
+        def __init__(self, tag):
+            self.tag = tag
+
+        def open(self):
+            pass
+
+        def close(self):
+            pass
+
+        def grab(self):
+            img = np.zeros((40, 60, 3), np.uint8)
+            img[0, 0, 0] = self.tag
+            return Frame(image=img)
+
+        @property
+        def size(self):
+            return (60, 40)
+
+    class SameOCR(MockOCREngine):
+        """Both regions report the *identical* message."""
+
+        def recognize(self, frame):
+            self.calls += 1
+            return MockOCREngine(lines=["nice shot"]).recognize(frame)
+
+    bus = EventBus()
+    got: list[Subtitle] = []
+    bus.subscribe(Subtitle, got.append)
+    pipeline = ScreenPipeline(
+        [Tagged(1), Tagged(2)], SameOCR(), MockTranslator(), bus, max_fps=50, merge_lines=False
+    )
+    pipeline.start()
+    try:
+        assert wait_until(lambda: {s.region for s in got} == {0, 1}, timeout=5.0)
+    finally:
+        pipeline.stop()
+
+
+def test_bare_player_name_is_not_shown_as_a_subtitle():
+    """OCR boxes the name separately; translating it produces a useless bubble."""
+    from fpst.pipeline.screen import _is_bare_name
+
+    assert _is_bare_name("xX_Shadow_Xx", "xX_Shadow_Xx") is True
+    assert _is_bare_name("Echo", "Echo") is True
+    assert _is_bare_name("Echo", "回声") is False, "a real translation must show"
+    assert _is_bare_name("need cover", "need cover") is False, "has a space"
+    assert _is_bare_name("gg", "gg") is False, "too short to be sure"
