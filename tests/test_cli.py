@@ -157,3 +157,58 @@ def test_pkg_version_falls_back_when_metadata_is_gone(monkeypatch, capsys):
     # rapidocr is installed in the dev venv, so the import fallback must find it.
     assert m._pkg_version("rapidocr-onnxruntime") == "bundled"
     assert m._pkg_version("definitely-not-installed-xyz") == "-"
+
+
+def test_main_survives_having_no_stdout(monkeypatch, capsys):
+    """PyInstaller windowed builds have stdout/stderr = None. The very first
+    print() then raised 'lost sys.stdout' and the app died before any window --
+    which is exactly what 'double-click, nothing happens' looked like."""
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import sys
+        sys.stdout = None
+        sys.stderr = None
+        sys.path.insert(0, "src")
+        from translator.__main__ import main
+        code = main(["doctor"])
+        raise SystemExit(code)
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=".",
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"crashed: {result.stderr[-800:]}"
+
+
+def test_run_skips_the_cli_wizard_without_a_terminal(monkeypatch):
+    """The interactive wizard prints and prompts; in a windowed build it must be
+    skipped so the GUI can ask instead."""
+    from translator import __main__ as m
+    from translator.runtime import credentials
+
+    monkeypatch.setattr(credentials, "can_prompt", lambda: False)
+    called = []
+    monkeypatch.setattr("translator.runtime.setup.run_setup", lambda *a, **k: called.append(1))
+    monkeypatch.setattr("translator.ui.app.run_app", lambda *a, **k: 0)
+
+    code = m.cmd_run(
+        argparse.Namespace(
+            config=None,
+            region=None,
+            demo=False,
+            no_prompt=False,
+            skip_setup=False,
+            verbose=False,
+            no_settings=True,
+        )
+    )
+    assert code == 0
+    assert called == [], "must not run the CLI wizard without a terminal"

@@ -55,6 +55,41 @@ OPTIONAL_PACKAGES = [
 ]
 
 
+def _ensure_std_streams() -> None:
+    """Guarantee that ``print`` cannot crash.
+
+    A PyInstaller windowed build (``console=False``) has **no** stdout/stderr:
+    both are None. The first ``print`` then raises ``RuntimeError: lost
+    sys.stdout`` and the process dies before any window appears -- which is
+    exactly what "double-click and nothing happens" looked like. A windowed app
+    still wants to record what it would have printed, so route it to the log
+    file rather than /dev/null.
+    """
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            setattr(sys, name, _LogStream(name))
+
+
+class _LogStream:
+    """Minimal text stream that forwards to the module logger."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+        self._log = logging.getLogger(f"std{name}")
+
+    def write(self, text: str) -> int:
+        text = (text or "").rstrip()
+        if text:
+            self._log.info("%s", text)
+        return len(text or "")
+
+    def flush(self) -> None:
+        pass
+
+    def isatty(self) -> bool:
+        return False
+
+
 def _setup_frozen_logging() -> None:
     """Log to a file when running from a packaged build.
 
@@ -426,7 +461,11 @@ def cmd_run(args: argparse.Namespace) -> int:
             datefmt="%H:%M:%S",
         )
 
-    if not args.demo and not args.skip_setup and not args.no_prompt:
+    from .runtime.credentials import can_prompt
+
+    # The CLI wizard needs a terminal. In a windowed build there is none, and the
+    # GUI settings window is the right place to ask anyway.
+    if not args.demo and not args.skip_setup and not args.no_prompt and can_prompt():
         print("首次启动检查:")
         result = run_setup(cfg, interactive=True, config_path=args.config)
         if not result:
@@ -686,6 +725,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_std_streams()
     # Line-buffer even when piped to a file/tee, so `translator watch > log` streams.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
