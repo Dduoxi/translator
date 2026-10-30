@@ -9,3 +9,8 @@ build/
 .ruff_cache/
 config.toml
 models/
+
+# Portable Windows bundle: 180 MB, which GitHub rejects outright (100 MB per file
+# limit). It lives in the working tree for copying to a Windows machine; the
+# reproducible way to get an installer is the windows-build workflow.
+FpsTranslator-portable-win64.zip

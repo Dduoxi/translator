@@ -689,7 +689,10 @@ def main(argv: list[str] | None = None) -> int:
     # Line-buffer even when piped to a file/tee, so `fpst watch > log` streams.
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
-    if getattr(sys, "frozen", False):
+    # A packaged build (PyInstaller) and the portable bundle (pythonw.exe) both
+    # run without a console, so stderr is invisible and "it does not work" is
+    # undebuggable. Log to %APPDATA%/FpsTranslator/logs/fpst.log in both cases.
+    if getattr(sys, "frozen", False) or sys.executable.lower().endswith("pythonw.exe"):
         _setup_frozen_logging()
     parser = build_parser()
     args = parser.parse_args(argv)
