@@ -692,7 +692,8 @@ def main(argv: list[str] | None = None) -> int:
     # A packaged build (PyInstaller) and the portable bundle (pythonw.exe) both
     # run without a console, so stderr is invisible and "it does not work" is
     # undebuggable. Log to %APPDATA%/Translator/logs/translator.log in both cases.
-    if getattr(sys, "frozen", False) or sys.executable.lower().endswith("pythonw.exe"):
+    frozen = getattr(sys, "frozen", False) or sys.executable.lower().endswith("pythonw.exe")
+    if frozen:
         _setup_frozen_logging()
     parser = build_parser()
     args = parser.parse_args(argv)

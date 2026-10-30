@@ -28,7 +28,7 @@ packages = ["src/translator"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-    "slow: loads real ONNX models / needs a display; deselect with -m 'not slow'",
+    "slow: waits in real time or loads real ONNX models; skipped unless --runslow",
 ]
 
 [tool.ruff]

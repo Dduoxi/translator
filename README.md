@@ -65,8 +65,11 @@ python -m translator config
 # 截一次屏，看看 OCR 能读出什么（调 ROI 用这个）
 python -m translator scan --region 0.02 0.55 0.5 0.4
 
-# 测试（-m 'not slow' 跳过加载真模型的用例）
+# 测试：默认只跑快的（~2 秒，跳过等待真实时钟和加载真模型的用例）
 python -m pytest -q
+
+# 全量（约 10 秒）：包含节流/去抖等依赖真实时间的用例
+python -m pytest --runslow
 ```
 
 Windows 机器上建议 Python **3.11**（faster-whisper / PySide6 的轮子最全），

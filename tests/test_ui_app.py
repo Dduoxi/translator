@@ -384,3 +384,63 @@ def test_small_ratio_survives_the_spinbox(app, cfg_path, value):
         assert window.collect_config().screen.min_change_ratio == value
     finally:
         window.close()
+
+
+def test_missing_credentials_do_not_abort_startup(app):
+    """Regression: a windowed build has no stdin, so an interactive credential
+    prompt threw and the process exited before any window appeared -- the app
+    looked like it simply would not open. It must start and point at settings."""
+    from translator.core.config import TranslateConfig
+    from translator.runtime import credentials
+
+    cfg = TranslateConfig()
+    cfg.api_key = ""
+    assert credentials.can_prompt() in (True, False)  # never raises
+    # With no terminal and no stored key the call must report, not crash.
+    try:
+        credentials.ensure_credentials(cfg, interactive=True)
+    except credentials.MissingApiKey as exc:
+        assert "设置" in str(exc) or "TRANSLATOR_API_KEY" in str(exc)
+
+
+def test_can_prompt_is_false_without_stdin(monkeypatch):
+    from translator.runtime import credentials
+
+    monkeypatch.setattr(credentials.sys, "stdin", None)
+    assert credentials.can_prompt() is False
+
+
+def test_report_fatal_never_raises(app, monkeypatch, tmp_path):
+    """It runs while the process is already broken; raising there would hide the
+    original error. The dialog is stubbed out -- a modal box would block the test
+    suite forever (it did exactly that before this seam existed)."""
+    from translator.runtime import report
+
+    shown = []
+    monkeypatch.setattr(report, "_write_log", lambda text: None)
+    monkeypatch.setattr(report, "_log_path", lambda: str(tmp_path / "x.log"))
+    monkeypatch.setattr(
+        report, "_show_dialog", lambda message, detail: shown.append(message) or True
+    )
+    report.report_fatal("boom", "traceback here")  # must not raise
+    assert shown == ["boom"]
+
+
+def test_report_fatal_survives_a_broken_logger(monkeypatch):
+    """Logging itself may be what failed; the reporter must still return."""
+    from translator.runtime import report
+
+    monkeypatch.setattr(report, "_write_log", lambda text: (_ for _ in ()).throw(OSError()))
+
+    def boom(*_a, **_k):
+        raise OSError("no dialog either")
+
+    monkeypatch.setattr(report, "_show_dialog", boom)
+    report.report_fatal("still fine")  # must not raise
+
+
+def test_dialog_is_suppressed_by_env(monkeypatch):
+    from translator.runtime import report
+
+    monkeypatch.setenv("TRANSLATOR_NO_DIALOG", "1")
+    assert report._show_dialog("x", "") is False

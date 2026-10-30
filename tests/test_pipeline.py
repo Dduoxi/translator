@@ -172,6 +172,7 @@ def test_pipeline_reports_latency_and_source():
     assert got[0].latency_ms >= 0
 
 
+@pytest.mark.slow
 def test_pipeline_ignores_frames_when_gate_says_unchanged():
     """With the change gate in front, a static screen must cost one OCR run only."""
     image = np.zeros((60, 200, 3), np.uint8)
@@ -300,6 +301,7 @@ class ChurningSource(ScreenSource):
         return (80, 40)
 
 
+@pytest.mark.slow
 def test_debounce_still_fires_when_screen_never_settles():
     """A continuously animating ROI must not starve OCR forever (starvation cap)."""
     ocr = MockOCREngine(lines=["gg"])
@@ -319,6 +321,7 @@ def test_debounce_still_fires_when_screen_never_settles():
         pipeline.stop()
 
 
+@pytest.mark.slow
 def test_debounce_suppresses_ocr_on_a_churning_screen():
     """Before the cap expires, a still-animating screen should produce no OCR runs."""
     ocr = MockOCREngine(lines=["gg"])
@@ -373,6 +376,7 @@ def test_skipped_translations_do_not_become_subtitles():
 # --------------------------------------------------- translation isolation
 
 
+@pytest.mark.slow
 def test_slow_translation_does_not_block_ocr():
     """A 20 s LLM call must not stop the OCR loop.
 
@@ -491,6 +495,7 @@ def test_simultaneous_changes_in_two_regions_are_both_processed():
     assert picked == {(0, "chat"), (1, "killfeed")}
 
 
+@pytest.mark.slow
 def test_one_region_changing_does_not_reprocess_another():
     """Each ROI has its own change gate, so a busy kill feed must not re-OCR chat."""
     quiet = np.zeros((40, 100, 3), np.uint8)
@@ -534,6 +539,7 @@ def test_one_region_changing_does_not_reprocess_another():
     assert ocr.calls <= 8, f"quiet region was re-OCR'd too often ({ocr.calls} runs)"
 
 
+@pytest.mark.slow
 def test_throttle_does_not_starve_regions_under_load():
     """Regression: the worker waited for the throttle window and then replaced
     its pending item with the newest one, so with many ROIs the same few regions
@@ -652,6 +658,7 @@ def test_bare_player_name_is_not_shown_as_a_subtitle():
     assert _is_bare_name("gg", "gg") is False, "too short to be sure"
 
 
+@pytest.mark.slow
 def test_throttle_is_per_region_not_global():
     """Regression: one global "last run" timestamp capped throughput at
     1/min_interval for the *whole* pipeline, so with N regions each one waited

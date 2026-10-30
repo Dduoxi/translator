@@ -20,6 +20,7 @@ MODULES = [
     "translator.capture.mss_source",
     "translator.capture.dxgi",
     "translator.ocr.rapidocr_engine",
+    "translator.ocr.windows_engine",
     "translator.translate.baidu",
     "translator.translate.llm",
 ]

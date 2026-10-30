@@ -22,6 +22,7 @@ import getpass
 import ipaddress
 import logging
 import os
+import sys
 from urllib.parse import urlparse
 
 from ..core.config import TranslateConfig
@@ -56,6 +57,22 @@ _BAIDU_KEY = "baidu_key"
 
 class MissingApiKey(RuntimeError):
     """No key could be found and we cannot ask for one."""
+
+
+def can_prompt() -> bool:
+    """True only when we have a terminal to type into.
+
+    A packaged build is windowed: sys.stdin is None (or not a tty), so input()
+    and getpass() cannot work. Calling them anyway raised and aborted startup
+    before any window appeared -- "double-click, nothing happens".
+    """
+    stream = getattr(sys, "stdin", None)
+    if stream is None:
+        return False
+    try:
+        return bool(stream.isatty())
+    except Exception:  # noqa: BLE001 - detached/closed stream
+        return False
 
 
 # --------------------------------------------------------------------- storage
@@ -221,10 +238,10 @@ def ensure_baidu(
             )
         return appid, secret
 
-    if not interactive:
+    if not interactive or not can_prompt():
         raise MissingApiKey(
             f"未找到百度翻译凭据。请设置 {cfg.baidu_appid_env} / {cfg.baidu_key_env}，"
-            "或运行 `translator auth set`。"
+            "或在设置窗口里点「设置密钥…」。"
         )
 
     print()
@@ -379,7 +396,9 @@ def ensure_api_key(
         return key
 
     if not interactive:
-        raise MissingApiKey(f"no API key found. Set {cfg.api_key_env}, or run `translator auth set`.")
+        raise MissingApiKey(
+            f"no API key found. Set {cfg.api_key_env}, or run `translator auth set`."
+        )
 
     print(_PROMPT.format(base_url=cfg.base_url, model=cfg.model, reason=reason))
     try:

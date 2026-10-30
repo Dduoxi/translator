@@ -8,7 +8,6 @@ tests.
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
@@ -17,7 +16,6 @@ from PySide6.QtWidgets import QMessageBox, QSystemTrayIcon
 from ..core.config import AppConfig, default_config_path
 from ..runtime.credentials import (
     MissingApiKey,
-    ensure_api_key,
     ensure_credentials,
     load_api_key,
     mask,
@@ -70,12 +68,22 @@ def run_app(
     controller = AppController(path)
     cfg = controller.cfg
 
+    # A missing credential is a configuration problem, not a reason to refuse to
+    # start: the settings window is where the user fixes it. Aborting here is
+    # exactly what made the packaged build look like it did nothing at all --
+    # a windowed build has no stdin, so the interactive prompt threw and the
+    # process exited before any window appeared.
+    key_warning = ""
     if not demo:
         try:
-            ensure_api_key(cfg.translate, interactive=True, reason="首次使用需要配置翻译密钥。")
+            ensure_credentials(
+                cfg.translate,
+                interactive=interactive,
+                reason="首次使用需要配置翻译凭据。",
+            )
         except MissingApiKey as exc:
-            print(f"无法启动：{exc}", file=sys.stderr)
-            return 2
+            key_warning = str(exc)
+            log.warning("starting without credentials: %s", exc)
 
     overlay = SubtitleOverlay(
         cfg.ui,
@@ -189,10 +197,16 @@ def run_app(
     poller.start()
     refresh_status()
 
-    if show_settings or demo:
+    if key_warning:
+        window.show_tab("translate")
+        window.set_key_status(key_warning)
+        if tray is not None:
+            tray.notify("还没配置翻译凭据", "在设置窗口里点「设置密钥…」")
+
+    if show_settings or demo or key_warning:
         open_settings()
     elif tray is not None:
-        tray.notify("Translator已启动", "单击托盘图标打开设置，中键暂停")
+        tray.notify("Translator 已启动", "单击托盘图标打开设置，中键暂停")
 
     # Qt blocks Python signal handling unless something wakes the loop.
     import signal

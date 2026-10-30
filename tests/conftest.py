@@ -47,3 +47,29 @@ def _isolate_config_path(tmp_path, monkeypatch):
     monkeypatch.setattr(config_mod, "app_data_dir", lambda: data_dir)
     monkeypatch.setattr(config_mod, "default_config_path", lambda: data_dir / "config.toml")
     yield data_dir
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--runslow",
+        action="store_true",
+        default=False,
+        help="also run tests that sleep in real time or load real ONNX models",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip `slow` tests unless --runslow is given.
+
+    They are not slow because of bad code: they assert wall-clock behaviour
+    (throttling, debounce, starvation) and therefore have to actually wait, which
+    accounts for ~8 of the ~10 seconds the whole suite takes. Keeping them out of
+    the default loop makes the edit-test cycle ~2 s without losing coverage --
+    run `pytest --runslow` (or CI) to exercise them.
+    """
+    if config.getoption("--runslow"):
+        return
+    skip = pytest.mark.skip(reason="needs --runslow")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip)
