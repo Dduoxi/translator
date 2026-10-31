@@ -348,6 +348,80 @@ def cmd_roi(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_probe(args: argparse.Namespace) -> int:
+    """Watch the ROI and print every OCR line with the filters' verdict.
+
+    Exists because tuning filters from screenshots is guesswork: what matters is
+    what the recogniser actually reads out of your ROI, at your resolution, with
+    your UI language. Run this, read the verdicts, adjust config, run again.
+    """
+    import time
+
+    from .capture import make_screen_source
+    from .core.dedupe import normalise
+    from .ocr import make_ocr_engine, postprocess
+    from .ocr.filters import FilterChain
+    from .ocr.stability import StabilityGate
+
+    load_builtin_engines()
+    cfg = AppConfig.load(args.config)
+    if args.region:
+        cfg.screen.regions = [tuple(float(v) for v in args.region)]
+        cfg.screen.region = None
+    cfg.screen.min_change_ratio = 0  # we want every frame here, not just changes
+
+    chain = FilterChain(cfg.filters) if not args.no_filter else None
+    gate = StabilityGate(0 if args.no_filter else cfg.filters.confirm_frames)
+
+    source = make_screen_source(cfg.screen)
+    engine = make_ocr_engine(cfg.ocr)
+    source.open()
+    engine.warmup()
+    print(f"观察 {args.seconds:g} 秒, region={cfg.screen.resolved_regions()[0]}")
+    if chain is None:
+        print("(--no-filter: 不看过滤结果, 只列出 OCR 读到的内容)")
+    print("-" * 66)
+
+    seen: dict[str, tuple[str, int]] = {}
+    started = time.perf_counter()
+    passes = 0
+    try:
+        while time.perf_counter() - started < args.seconds:
+            frame = source.grab()
+            if frame is None:
+                continue
+            regions = postprocess(engine.recognize(frame), merge=cfg.ocr.merge_lines)
+            passes += 1
+            kept_by_gate, _ = gate.filter(regions)
+            stable = {normalise(r.text) for r in kept_by_gate}
+            for region in regions:
+                key = normalise(region.text)
+                if not key:
+                    continue
+                reason = chain.reason_for(region.text) if chain else None
+                if reason:
+                    verdict = f"丢弃({reason})"
+                elif chain is not None and cfg.filters.confirm_frames > 1:
+                    verdict = "保留" if key in stable else "待确认(下一轮)"
+                else:
+                    verdict = "保留"
+                count = seen.get(key, (verdict, 0))[1] + 1
+                seen[key] = (verdict, count)
+            time.sleep(0.2)
+    finally:
+        source.close()
+        engine.close()
+
+    print(f"{passes} 轮 OCR, 去重后 {len(seen)} 种文本\n")
+    for text, (verdict, count) in sorted(seen.items(), key=lambda kv: -kv[1][1]):
+        print(f"  [{verdict}] x{count:<3} {text[:72]}")
+    if chain is not None:
+        print()
+        print("提示: 「待确认」说明该行没能在连续两轮中稳定出现,")
+        print("      把 [filters] confirm_frames 调成 1 可关闭这个检查。")
+    return 0
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     """Always-on scan: prints translated lines as they appear."""
     from .core.bus import EventBus
@@ -657,6 +731,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_roi.add_argument("--verify", action="store_true", help="OCR the selection immediately")
     p_roi.add_argument("--write", action="store_true", help="save the selection into config.toml")
     p_roi.set_defaults(func=cmd_roi)
+
+    p_probe = sub.add_parser("probe", help="show what OCR reads and what gets dropped")
+    p_probe.add_argument("--config", default=None, help="config file to load")
+    p_probe.add_argument("--region", nargs=4, metavar=("X", "Y", "W", "H"), help="ROI override")
+    p_probe.add_argument("--seconds", type=float, default=6.0, help="how long to watch")
+    p_probe.add_argument("--no-filter", action="store_true", help="ignore the filters")
+    p_probe.set_defaults(func=cmd_probe)
 
     p_scan = sub.add_parser("scan", help="capture the ROI once and print OCR output")
     p_scan.add_argument("--config", default=None, help="config file to load")
