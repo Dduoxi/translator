@@ -345,6 +345,15 @@ class FilterConfig:
     """Drop when this share of the characters is one repeated symbol, which is
     what an OCR'd icon or health bar turns into."""
 
+    confirm_frames: int = 1
+    """How many consecutive OCR passes a line must appear at the same place.
+
+    1 disables the check. 2 kills the two things a moving FPS camera puts inside
+    the box: world text sliding past (camera + parallax) and transient damage
+    numbers. Chat lines sit still for seconds, so they survive -- at the cost of
+    one extra OCR interval of latency.
+    """
+
     require_regex: list[str] = field(default_factory=list)
     """Keep ONLY lines matching one of these. Empty = keep everything.
 

@@ -113,6 +113,7 @@ class ScreenPipeline:
         idle_timeout: float = 0.0,
         settle_s: float = 0.0,
         filters: object | None = None,
+        confirm_frames: int = 1,
     ) -> None:
         self._sources: list[ScreenSource] = (
             [source] if isinstance(source, ScreenSource) else list(source)
@@ -132,6 +133,9 @@ class ScreenPipeline:
         # recognition is the expensive stage and gets spaced out.
         # Anything with reason_for(text) -> str|None; a FilterChain normally.
         self._filters = filters
+        from ..ocr.stability import StabilityGate
+
+        self._stability = StabilityGate(confirm_frames)
         self._min_interval = max(0.0, min_interval)
         # After this long with no change, poll the screen lazily instead of at
         # max_fps. 0 disables the idle mode.
@@ -184,6 +188,7 @@ class ScreenPipeline:
             idle_timeout=cfg.performance.idle_timeout,
             settle_s=cfg.screen.settle_ms / 1000.0,
             filters=_build_filters(cfg.filters),
+            confirm_frames=cfg.filters.confirm_frames,
         )
 
     # ------------------------------------------------------------- lifecycle
@@ -445,6 +450,15 @@ class ScreenPipeline:
                 else:
                     kept.append(region)
             regions = kept
+
+        # Camera movement drags world text through the box; only text that stays
+        # put for consecutive passes can be a chat line.
+        regions, unstable = self._stability.filter(regions)
+        if unstable:
+            self.stats.lines_dropped += unstable
+            self.stats.drop_reasons["unstable"] = (
+                self.stats.drop_reasons.get("unstable", 0) + unstable
+            )
 
         regions = regions[: self._max_lines]
 

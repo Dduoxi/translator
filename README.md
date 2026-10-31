@@ -364,6 +364,49 @@ keep_regex = []
 
 **比过滤更有效的是框小一点**：只框聊天文字本身，不要把击杀提示、血条、小地图一起框进去。
 
+### 镜头在动，世界文字会飘进框里怎么办
+
+FPS 镜头一直在动，固定的选区不可能只包含聊天。分层解决，按有效性排序：
+
+| 手段 | 原理 | 代价 |
+|---|---|---|
+| **① 只框聊天列表的底部 2–3 行** | 聊天行固定不动，框越小撞进来的世界文字越少 | 无 |
+| **② `require_regex` 要求「名字: 消息」** | `PROTECTOR`、`SAFE`、`83` 这类没有说话人前缀，一次性全丢 | 无 |
+| **③ `confirm_frames = 2` 时间稳定性** | 聊天行在同一位置停留数秒；世界文字每帧都在动、伤害数字只活 1 帧 | 延迟 +1 个 OCR 间隔 |
+
+③ 的原理值得展开：镜头移动时，建筑招牌、目标标签、伤害数字都**不会在同一像素位置上连着出现两次**，而聊天行会。所以「连续两轮 OCR 都在同一位置读到同一段文字」这一条判据，能几乎无损地剔除移动画面。
+
+```toml
+[filters]
+confirm_frames = 2      # 连续两轮都在同一位置才认；1 = 关闭
+```
+
+状态页会把它单独计入丢弃原因 `unstable`，与 `no_letters`、`symbols` 区分开。
+
+#### Deadlock 实测配置
+
+用真实对局截图（1920×1200，HUD 全开）跑一遍我们的 OCR：**23 行全部是 HUD**——`68FPS Max18.1ms|Avg SPAWN 6:42 3:18`、`TESTING TOOLS`、`Hold TAB`、`ITEMVALUE`、`Gutter Ghoull`……没有一行是聊天。
+
+```toml
+[screen]
+region = [0.0, 0.62, 0.30, 0.22]   # 左下：物品栏上方、头像下方那一条
+
+[filters]
+min_chars = 2
+min_letters = 2
+confirm_frames = 2
+require_regex = ["^\\S{1,24}\\s*[:：]\\s*\\S"]
+extra_drop_regex = [
+  "(?i)^(max|avg)\\s",      # Max 18.1ms | Avg 68FPS
+  "(?i)^hold\\b",           # Hold TAB
+  "(?i)item\\s*value",
+  "(?i)^testing\\s*tools",
+  "^[\\d.:]+$",              # 6:42 / 3:18
+]
+```
+
+**注意千万别框到环境**：Deadlock 世界里招牌是可读的（`PALACE BELL`、`CURIOSITY SHOP`、`GYM`、`理`），框进去就会被翻译。
+
 ### 四个关键取舍（都是拿「延迟」换「CPU」）
 
 | 手段 | 收益 | 代价 |
