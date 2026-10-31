@@ -169,6 +169,8 @@ class AppController(QObject):
                     "ocr_ms": stats.ocr_ms,
                     "translate_ms": stats.translate_ms,
                     "lines_new": stats.lines_new,
+                    "lines_dropped": stats.lines_dropped,
+                    "drop_reasons": dict(stats.drop_reasons),
                     "errors": stats.errors,
                 }
             )

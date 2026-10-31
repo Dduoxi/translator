@@ -1,6 +1,6 @@
 [project]
 name = "translator"
-version = "0.1.7"
+version = "0.1.8"
 description = "Real-time in-game translation: screen OCR + teammate voice"
 requires-python = ">=3.11,<3.13"
 dependencies = ["numpy>=1.26"]

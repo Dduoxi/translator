@@ -22,6 +22,7 @@ __all__ = [
     "ASRConfig",
     "TranslateConfig",
     "UIConfig",
+    "FilterConfig",
     "AppConfig",
     "default_config_path",
     "app_data_dir",
@@ -331,6 +332,35 @@ class UIConfig:
 
 
 @dataclass
+class FilterConfig:
+    """What to throw away before spending a translation request on it."""
+
+    min_chars: int = 2
+    """Shorter than this is an OCR fragment, not a message."""
+    min_letters: int = 1
+    """At least this many alphabetic characters; drops '+150', '12', '3/4'."""
+    drop_pure_symbols: bool = True
+    drop_repeated_chars: bool = True
+    max_repeat_ratio: float = 0.7
+    """Drop when this share of the characters is one repeated symbol, which is
+    what an OCR'd icon or health bar turns into."""
+
+    require_regex: list[str] = field(default_factory=list)
+    """Keep ONLY lines matching one of these. Empty = keep everything.
+
+    The strongest general lever: FPS chat is usually "Name: message", so
+    ``require_regex = ["^\\S{1,24}\\s*[:：]\\s*\\S"]`` drops every HUD element that
+    lacks a speaker prefix, without any per-game tuning.
+    """
+
+    extra_drop_regex: list[str] = field(default_factory=list)
+    """Drop lines matching any of these. e.g. '^v?\\d+\\.\\d+' for version strings."""
+
+    keep_regex: list[str] = field(default_factory=list)
+    """Whitelist: a match here is never dropped, whatever else says otherwise."""
+
+
+@dataclass
 class PerformanceConfig:
     """The "do not hurt the game" knobs.
 
@@ -361,6 +391,7 @@ class AppConfig:
     translate: TranslateConfig = field(default_factory=TranslateConfig)
     ui: UIConfig = field(default_factory=UIConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
+    filters: FilterConfig = field(default_factory=FilterConfig)
 
     # ---------------------------------------------------------------- loading
     @classmethod

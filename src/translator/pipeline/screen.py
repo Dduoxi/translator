@@ -55,6 +55,9 @@ class PipelineStats:
     """Total idle time between OCR runs, used by bench to estimate duty cycle."""
     lines_seen: int = 0
     lines_new: int = 0
+    lines_dropped: int = 0
+    drop_reasons: dict[str, int] = field(default_factory=dict)
+    """Why lines were discarded, so the status panel can show what dominates."""
     errors: int = 0
     idle: bool = False
     frames_empty: int = 0
@@ -109,6 +112,7 @@ class ScreenPipeline:
         min_interval: float = 0.0,
         idle_timeout: float = 0.0,
         settle_s: float = 0.0,
+        filters: object | None = None,
     ) -> None:
         self._sources: list[ScreenSource] = (
             [source] if isinstance(source, ScreenSource) else list(source)
@@ -126,6 +130,8 @@ class ScreenPipeline:
         self._max_lines = max_lines
         # Minimum seconds between OCR runs. Capture stays fast (it is cheap);
         # recognition is the expensive stage and gets spaced out.
+        # Anything with reason_for(text) -> str|None; a FilterChain normally.
+        self._filters = filters
         self._min_interval = max(0.0, min_interval)
         # After this long with no change, poll the screen lazily instead of at
         # max_fps. 0 disables the idle mode.
@@ -177,6 +183,7 @@ class ScreenPipeline:
             min_interval=cfg.performance.ocr_min_interval,
             idle_timeout=cfg.performance.idle_timeout,
             settle_s=cfg.screen.settle_ms / 1000.0,
+            filters=_build_filters(cfg.filters),
         )
 
     # ------------------------------------------------------------- lifecycle
@@ -425,6 +432,20 @@ class ScreenPipeline:
 
         if self._min_conf > 0:
             regions = [r for r in regions if r.confidence >= self._min_conf]
+
+        # Drop non-messages before spending anything on them: a filtered line
+        # costs no translation request at all.
+        if self._filters is not None:
+            kept = []
+            for region in regions:
+                reason = self._filters.reason_for(region.text)  # type: ignore[attr-defined]
+                if reason:
+                    self.stats.lines_dropped += 1
+                    self.stats.drop_reasons[reason] = self.stats.drop_reasons.get(reason, 0) + 1
+                else:
+                    kept.append(region)
+            regions = kept
+
         regions = regions[: self._max_lines]
 
         # Only pay for translation on genuinely new lines, per region.
@@ -439,6 +460,24 @@ class ScreenPipeline:
         # latest-wins slot would drop a region's lines when two ROIs change at
         # the same moment.
         self._translate_mailbox.extend(region_index, [(region, frame.ts) for region in fresh])
+
+
+def _build_filters(cfg) -> object | None:
+    """Build the filter chain, or None when every rule is disabled."""
+    from ..ocr.filters import FilterChain
+
+    chain = FilterChain(cfg)
+    if (
+        cfg.min_chars <= 1
+        and not cfg.require_regex
+        and not cfg.extra_drop_regex
+        and not cfg.keep_regex
+        and not cfg.drop_pure_symbols
+        and not cfg.drop_repeated_chars
+        and cfg.min_letters <= 0
+    ):
+        return None
+    return chain
 
 
 def _is_bare_name(source: str, translation: str) -> bool:

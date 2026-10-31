@@ -497,8 +497,13 @@ class StatusTab(_Tab):
             f"OCR 平均耗时：{snap.get('ocr_ms', 0):.0f} ms",
             f"翻译耗时：{snap.get('translate_ms', 0):.0f} ms",
             f"新增文本行：{snap.get('lines_new', '—')}",
+            f"过滤掉的行：{snap.get('lines_dropped', 0)}",
             f"错误次数：{snap.get('errors', '—')}",
         ]
+        reasons = snap.get("drop_reasons")
+        if isinstance(reasons, dict) and reasons:
+            top = sorted(reasons.items(), key=lambda kv: -kv[1])[:4]
+            rows.append("   主因：" + "、".join(f"{k}×{v}" for k, v in top))
         cache = snap.get("cache")
         if isinstance(cache, dict) and cache:
             rows += [
