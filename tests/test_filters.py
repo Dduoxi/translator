@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from translator.core.config import FilterConfig
+from translator.core.config import AppConfig, FilterConfig
 from translator.ocr.filters import FilterChain, reason_for
 
 
@@ -76,22 +76,21 @@ def test_known_game_tokens_are_not_treated_as_identifiers():
         assert _chain().reason_for(token) is None, token
 
 
-# ------------------------------------------------------- require_regex (the lever)
+# ------------------------------------------- an old config must not break startup
 
 
-def test_require_regex_keeps_only_speaker_prefixed_lines():
-    """FPS chat is "Name: message"; requiring the prefix drops every HUD element
-    without any per-game tuning."""
-    chain = _chain(require_regex=[r"^\S{1,24}\s*[:：]\s*\S"])
-    assert chain.reason_for("PlayerOne: rush b site") is None
-    assert chain.reason_for("xX_Shadow_Xx: gg") is None
-    assert chain.reason_for("玩家一：快攻") is None
-    for hud in ("AMMO", "RELOADING", "+150", "Echo", "5.2"):
-        assert chain.reason_for(hud) == "no_require_match", hud
-
-
-def test_require_regex_is_off_by_default():
-    assert _chain().reason_for("AMMO") is None
+def test_config_with_removed_require_regex_still_loads(tmp_path):
+    """require_regex was removed because its failure mode was silent total loss:
+    point it at a game whose chat has no speaker prefix and every subtitle
+    vanishes. Old config files that still carry the key must load, not crash."""
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[filters]\nrequire_regex = ["^\\\\S+:"]\nextra_drop_regex = ["ammo"]\n',
+        encoding="utf-8",
+    )
+    cfg = AppConfig.load(path)
+    assert cfg.filters.extra_drop_regex == ["ammo"], "sibling keys still apply"
+    assert not hasattr(cfg.filters, "require_regex")
 
 
 # --------------------------------------------------------------- extra / keep
@@ -105,8 +104,8 @@ def test_extra_patterns_drop_matching_lines():
 
 
 def test_keep_patterns_win_over_everything():
-    chain = _chain(require_regex=[r"^\S+:"], extra_drop_regex=[r"ammo"], keep_regex=[r"\bammo\b"])
-    assert chain.reason_for("low ammo") is None, "keep must override extra and require"
+    chain = _chain(extra_drop_regex=[r"ammo"], keep_regex=[r"\bammo\b"])
+    assert chain.reason_for("low ammo") is None, "keep must override the drop rules"
 
 
 def test_rules_can_be_switched_off():

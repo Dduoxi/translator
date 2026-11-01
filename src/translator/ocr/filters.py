@@ -75,11 +75,10 @@ class FilterChain:
     def __post_init__(self) -> None:
         self._extra = [re.compile(p, re.IGNORECASE) for p in self.config.extra_drop_regex]
         self._keep = [re.compile(p, re.IGNORECASE) for p in self.config.keep_regex]
-        self._require = [re.compile(p, re.IGNORECASE) for p in self.config.require_regex]
 
     def reason_for(self, text: str) -> str | None:
         """Return a short reason when ``text`` should be skipped, else None."""
-        return reason_for(text, self.config, self._extra, self._keep, self._require)
+        return reason_for(text, self.config, self._extra, self._keep)
 
 
 def _letters(text: str) -> int:
@@ -91,7 +90,6 @@ def reason_for(
     config: FilterConfig,
     extra: list[re.Pattern[str]] | None = None,
     keep: list[re.Pattern[str]] | None = None,
-    require: list[re.Pattern[str]] | None = None,
 ) -> str | None:
     stripped = text.strip()
     if not stripped:
@@ -100,12 +98,6 @@ def reason_for(
     for pattern in keep or ():
         if pattern.search(stripped):
             return None
-    for pattern in require or ():
-        if pattern.search(stripped):
-            break
-    else:
-        if require:
-            return "no_require_match"
     for pattern in extra or ():
         if pattern.search(stripped):
             return "pattern"

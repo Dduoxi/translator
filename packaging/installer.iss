@@ -2,7 +2,7 @@
 ; Build with packaging\make_installer.ps1
 
 #define AppName "Translator"
-#define AppVersion "0.2.0"
+#define AppVersion "0.3.0"
 #define AppExe "Translator.exe"
 
 [Setup]

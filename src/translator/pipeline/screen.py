@@ -483,7 +483,6 @@ def _build_filters(cfg) -> object | None:
     chain = FilterChain(cfg)
     if (
         cfg.min_chars <= 1
-        and not cfg.require_regex
         and not cfg.extra_drop_regex
         and not cfg.keep_regex
         and not cfg.drop_pure_symbols

@@ -354,14 +354,6 @@ class FilterConfig:
     one extra OCR interval of latency.
     """
 
-    require_regex: list[str] = field(default_factory=list)
-    """Keep ONLY lines matching one of these. Empty = keep everything.
-
-    The strongest general lever: FPS chat is usually "Name: message", so
-    ``require_regex = ["^\\S{1,24}\\s*[:：]\\s*\\S"]`` drops every HUD element that
-    lacks a speaker prefix, without any per-game tuning.
-    """
-
     extra_drop_regex: list[str] = field(default_factory=list)
     """Drop lines matching any of these. e.g. '^v?\\d+\\.\\d+' for version strings."""
 
